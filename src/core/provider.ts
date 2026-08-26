@@ -2,6 +2,8 @@ import type {
   CommonChatChunk,
   CommonChatRequest,
   CommonChatResponse,
+  CommonModelListResponse,
+  ModelListQuery,
   ProviderId,
 } from "./types.js";
 
@@ -21,4 +23,9 @@ export interface ProviderAdapter {
     request: CommonChatRequest,
     context?: ProviderRequestContext,
   ): AsyncIterable<CommonChatChunk>;
+
+  listModels?(
+    query?: ModelListQuery,
+    context?: ProviderRequestContext,
+  ): Promise<CommonModelListResponse>;
 }
