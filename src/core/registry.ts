@@ -1,6 +1,7 @@
 import type { AppConfig } from "../config.js";
 import { GeminiAdapter } from "../providers/gemini.js";
 import { OpenRouterAdapter } from "../providers/openrouter.js";
+import { ZaiAdapter } from "../providers/zai.js";
 import type { ProviderAdapter } from "./provider.js";
 import type { ProviderId } from "./types.js";
 
@@ -35,6 +36,15 @@ export function createProviderRegistry(config: AppConfig): ProviderRegistry {
       new GeminiAdapter({
         apiKey: config.GEMINI_API_KEY,
         baseUrl: config.GEMINI_BASE_URL,
+      }),
+    );
+  }
+
+  if (config.ZAI_API_KEY) {
+    registry.register(
+      new ZaiAdapter({
+        apiKey: config.ZAI_API_KEY,
+        baseUrl: config.ZAI_BASE_URL,
       }),
     );
   }
