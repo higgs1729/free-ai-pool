@@ -68,23 +68,27 @@ describe("Free AI Pool provider routing", () => {
   });
 
   it("keeps the legacy string body provider working", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: "gen-legacy-routing",
-          object: "chat.completion",
-          created: 1_777_000_021,
-          model: "resolved/free-model",
-          choices: [
-            {
-              index: 0,
-              message: { role: "assistant", content: "ok" },
-              finish_reason: "stop",
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+    const fetchMock = vi.fn(
+      async (
+        _input: Parameters<typeof fetch>[0],
+        _init?: Parameters<typeof fetch>[1],
+      ) =>
+        new Response(
+          JSON.stringify({
+            id: "gen-legacy-routing",
+            object: "chat.completion",
+            created: 1_777_000_021,
+            model: "resolved/free-model",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "ok" },
+                finish_reason: "stop",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     );
 
     const registry = new ProviderRegistry();
