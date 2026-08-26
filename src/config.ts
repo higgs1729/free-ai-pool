@@ -29,6 +29,10 @@ const AppConfigSchema = z.object({
   OPENROUTER_X_TITLE: defaultedNonEmptyString("free-ai-pool"),
 
   GEMINI_API_KEY: optionalNonEmptyString,
+  GEMINI_BASE_URL: z
+    .string()
+    .url()
+    .default("https://generativelanguage.googleapis.com/v1beta/openai"),
   GROQ_API_KEY: optionalNonEmptyString,
   ZAI_API_KEY: optionalNonEmptyString,
   KILO_API_KEY: optionalNonEmptyString,
