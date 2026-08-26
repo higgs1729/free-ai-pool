@@ -8,6 +8,10 @@ const AppConfigSchema = z.object({
     .default("info"),
 
   OPENROUTER_API_KEY: z.string().min(1).optional(),
+  OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
+  OPENROUTER_HTTP_REFERER: z.string().url().optional(),
+  OPENROUTER_X_TITLE: z.string().min(1).default("free-ai-pool"),
+
   GEMINI_API_KEY: z.string().min(1).optional(),
   GROQ_API_KEY: z.string().min(1).optional(),
   ZAI_API_KEY: z.string().min(1).optional(),
