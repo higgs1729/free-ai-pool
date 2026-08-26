@@ -4,183 +4,146 @@
 
 ## 目的
 
-複数の無料・低コストLLM APIを、利用側が各Provider固有仕様を意識せず切り替えて使える軽量な統合システムを作る。
+複数の無料・低コストLLM APIを、利用側がProvider固有仕様を意識せず切り替えて使える軽量な統合Gatewayにする。
 
-将来的には学校のチーム開発でも利用できるようにし、ChatGPTへコードを貼り付けるだけの使い方ではなく、Agentから直接利用できる共通AI基盤にする。
+主な利用先:
 
-ただしv1では作り込みすぎない。
+- Hermes Agent
+- n8n LLM Agent
+- 将来のVS Code / Orca等
+- 将来的な学校チーム開発
 
-## 基本方針
+## v1の基本方針
 
-利用側からはProviderを「モデル選択」のように切り替える。
+利用側からupstreamを明示して切り替える。
 
 ```text
-Backend
-├─ OpenRouter Free
+Free AI Pool
+├─ OpenRouter
 ├─ Gemini
 ├─ Groq
 ├─ Z.AI
 ├─ Kilo
-└─ Vercel
+└─ Vercel AI Gateway
 ```
 
-Agent側は可能な限り、
+推奨:
 
-```ts
-provider = "openrouter"
-provider = "gemini"
-provider = "groq"
+```http
+X-Free-AI-Pool-Provider: openrouter
 ```
 
-程度の変更だけで動作するようにする。
+共通request / responseはOpenRouter `/api/v1/chat/completions` をbaselineとし、snake_caseを維持する。
 
-### v1ではやらないこと
+### v1でやらないこと
 
-- 自動モデルルーティング
+- Provider間の自動モデルrouting
 - Provider間の自動fallback
-- 高度なquota最適化
-- タスク分類によるモデル自動選択
-- 全Provider差異の完全な抽象化
-- 大規模なGateway実装
+- quotaを跨いだ高度scheduler
+- Provider差異の完全抽象化
+- Embeddings / image generation / audio / files / batch
 
-必要になった時点で追加する。
+Provider内部のroutingは各upstreamへ任せる。
 
-## 初期採用Provider
+## 初期6 Provider
 
-以下の6系統で開始する。
+### OpenRouter
 
-### 1. OpenRouter Free
+v1の基準実装。
 
-既に利用中。
+- `openrouter/free`
+- Models API
+- Tool Calling
+- Structured Output
+- Reasoning
+- Streaming
+- vision
+- native `provider: {...}` routing
 
-- 累計$10以上credits購入済み
-- Freeモデル: 最大1,000 requests/day
-- 複数の無料モデルを利用可能
-- 現在OxAlpha等の比較的高性能な無料モデルが存在
-- v1の基準となる使用感
+実API chat / SSE / Models E2E済み。
 
-OpenRouterへ$100以上入れても、Freeモデルの日次枠が1,000 requests/dayからさらに増える制度は現時点では確認されていない。
+#### `free-best`
 
-### 2. Gemini API
+Free AI Pool独自のOpenRouter内仮想model。
 
-Antigravity専用ではなく、通常のGemini Developer APIとして利用可能。
+`model: "free-best"` を指定すると、OpenRouter Models APIをintelligence降順で取得し、実際に無料・期限内・必要capability対応の最上位候補を選ぶ。
 
-- API keyで直接利用可能
-- OpenAI互換APIあり
-- Tool Calling対応
-- Structured Output対応
-- Streaming対応
-- Gemini Flash系にFree Tierあり
+これは **OpenRouter内のmodel選択だけ**であり、6 Provider間の自動routingではない。
 
-OpenRouterとは独立した無料資源として重要。
+### Gemini
 
-### 3. Groq Free
+公式OpenAI compatibility endpointを使用。
 
-独立した無料API枠。
+- Free Tier Flash
+- Tool Calling
+- Structured Output
+- Streaming
+- Models API
+- vision
 
-候補モデル例:
+実API Models / chat / SSE E2E済み。現在のローカル実確認では `gemini-3.6-flash` が利用可能。
 
-- GPT-OSS-120B
-- Qwen系
+### Groq
 
-特徴:
+独立Free API枠。
 
-- OpenAI互換
 - 非常に高速
-- Tool Calling対応
-- Request/dayだけでなくtoken/day制限にも注意
+- GPT-OSS / Qwen等
+- Tool Calling
+- Structured Output
+- Streaming
+- Models API
 
-軽量Agent/Subagent用途にも適する。
+Adapter / mock tests / CI実装済み。実API E2Eのみ未確認。
 
-### 4. Z.AI Free
+### Z.AI
 
-GLM系の独立した無料API。
+無料Flashを **単純・大量タスク実行役**として採用。
 
 候補:
 
-- GLM-4.7-Flash
+- `glm-4.5-flash`
+- `glm-4.7-flash`
 
-特徴:
+`glm-4.5-flash` は通常reasoning ONで使い、非常に単純な処理だけ明示的にOFFにできる。
 
-- 無料
-- OpenAI SDK互換
-- Tool Calling対応
-- Structured Output対応
-- Agentic Coding用途を想定
+実APIでchat / reasoning control / SSE / Tool Calling完全往復 / Structured Outputまで確認済み。
 
-### 5. Kilo Gateway
+### Kilo Gateway
 
-OpenRouterとは別の無料Gatewayとして採用。
+OpenRouterとは別の無料Gateway。
 
-無料モデル例:
-
-- StepFun Step 3.7 Flash
-- Poolside Laguna S 2.1
-- Poolside Laguna XS 2.1
-- NVIDIA Nemotron 3 Ultra 550B
-- Tencent HY3
 - `kilo-auto/free`
 - `openrouter/free`
+- Kilo catalogの各 `:free` model
+- anonymous free request対応
+- OpenAI-compatible chat / tools / response_format / streaming / Models
 
-OpenRouterと無料モデル集合は同一ではない。
+Adapter / mock tests / CI実装済み。API keyなしでもFree Adapterを利用可能。匿名実API E2Eのみ未確認。
 
-無料枠は現時点で概ね:
+### Vercel AI Gateway
 
-```text
-200 requests/hour/IP
-```
+毎月補充される少額creditsを商用モデル用計算資源として扱う。
 
-理論上は最大4,800 requests/day相当だが、上流Provider側の制限もあるため保証値としては扱わない。
+- OpenAI-compatible API
+- Tool Calling
+- Structured Output
+- Streaming
+- Models API
+- reasoning / providerOptions pass-through
 
-OpenRouterのように「一定額課金するとFree枠増加」という制度は現時点では確認されていない。
-
-役割:
-
-> OpenRouterとは別の大きな無料推論プール。
-
-### 6. Vercel AI Gateway
-
-Free Tierで毎月AI Gateway creditsが付与される。
-
-現時点:
-
-```text
-$5 / 30 days
-```
-
-特徴:
-
-- Gateway形式
-- 多数の商用モデルを利用可能
-- OpenAI系APIとの互換性が高い
-- GPT-5.6 Lunaもモデルカタログに存在
-
-Lunaは非常に低価格なので、$5でもAgent用途ではかなりの量を処理できる可能性がある。
-
-ただし、
-
-> Free Tierの$5 creditsでLunaを常時利用可能か
-
-については実APIで最終確認する価値がある。
-
-Vercelは「無料モデル」ではなく、
-
-> 毎月補充される少額の商用モデル用計算資源
-
-として扱う。
+Adapter / mock tests / CI実装済み。実API E2Eのみ未確認。
 
 ## 設計原則
 
 ### Provider固有処理を上位へ漏らさない
 
-理想:
-
 ```text
 Agent
   ↓
-Common LLM Client
+OpenAI-compatible Free AI Pool API
   ↓
-Provider Config
+Provider Adapter
   ├─ OpenRouter
   ├─ Gemini
   ├─ Groq
@@ -189,115 +152,83 @@ Provider Config
   └─ Vercel
 ```
 
-Provider差分は可能な限り、
+Provider差分はAdapterへ閉じ込める。
 
-```ts
-{
-  baseURL,
-  apiKey,
-  model
-}
-```
-
-程度に閉じ込める。
-
-### OpenAI互換を積極利用する
-
-Gemini、Groq、Z.AI、Kilo、Vercelなど、OpenAI互換APIが利用できるProviderでは共通clientを再利用する。
-
-ただし内部設計そのものをOpenAI仕様へ完全依存させる必要はない。
-
-### モデル名は設定側へ置く
+### OpenRouter baselineを維持
 
 例:
 
-```ts
-providers = {
-  openrouter: {
-    model: "...:free"
-  },
-  gemini: {
-    model: "gemini-..."
-  },
-  groq: {
-    model: "..."
-  }
+```json
+{
+  "model": "openrouter/free",
+  "messages": [{"role":"user","content":"hello"}],
+  "max_tokens": 1024,
+  "tool_choice": "auto"
 }
 ```
 
-無料モデルが終了・変更されてもAgent本体を修正しない。
+OpenRouter以外で解釈できないfieldはAdapterが除去・変換する。
 
-## 将来的なチーム利用
+### model IDはupstream nativeを優先
 
-学校の5人程度のチーム開発で利用する可能性がある。
+```text
+openrouter/free
+free-best
+gemini-3.6-flash
+openai/gpt-oss-120b
+glm-4.5-flash
+kilo-auto/free
+<vercel-native-model-id>
+```
 
-最初は所有者のAPI資源だけでも十分な可能性があるため、メンバー全員へ複雑なAPIキー管理を要求しない。
+無料modelの入れ替わりでAdapter本体を頻繁に修正しない設計を優先する。
 
-将来的には各メンバー自身のOpenRouter等のキーを追加することも可能。
+## 現在の実装進捗
 
-さらにDockerで環境をまとめ、
+1. ✅ TypeScript / Fastify基盤
+2. ✅ Common LLM contract
+3. ✅ Provider registry / config
+4. ✅ OpenRouter Adapter
+5. ✅ Gemini Adapter
+6. ✅ Groq Adapter
+7. ✅ Z.AI Adapter
+8. ✅ Kilo Adapter
+9. ✅ Vercel Adapter
+10. ✅ `/v1/chat/completions`
+11. ✅ SSE
+12. ✅ `/v1/models`
+13. ✅ Tool Calling baseline
+14. ✅ Structured Output baseline
+15. ✅ Reasoning baseline
+16. ✅ error normalization / abort propagation
+17. ✅ `free-best`
+18. ✅ CI: typecheck / tests / build
+19. ✅ OpenRouter / Gemini / Z.AI real API E2E
+20. ⏳ Groq / Kilo / Vercel real API E2E
+21. ⏳ Hermes / n8n final E2E
+
+**コード実装としてのv1 MVPは完成。**
+
+残りは実credentialsと実clientを使う接続確認。
+
+## 将来のチーム利用
+
+5人程度のチームでも利用できるよう、最終的には以下程度を目指す。
 
 ```text
 git clone
 ↓
-.env にAPI key
+.env に必要なAPI key
 ↓
-docker compose up
+npm run dev  または将来 docker compose up
+↓
+Agentから http://host:8787/v1 を利用
 ```
 
-程度でAgent環境を利用できる形を目指せる。
+Docker化はv1の完成条件には含めない。
 
-ただしDocker対応はv1の最優先事項ではない。
-
-## 次に行うこと
-
-### v1
-
-1. プロジェクトの最小構成を決める
-2. 共通LLM clientのinterfaceを決める
-3. Provider設定形式を決める
-4. OpenRouter Freeを最初に実装
-5. Geminiを追加
-6. Groqを追加
-7. Z.AIを追加
-8. Kiloを追加
-9. Vercelを追加
-
-重要なのは、6 Providerを一気に高度に統合しないこと。
-
-まずOpenRouterで一本通し、
-
-```text
-provider設定を変更するだけで別APIも動く
-```
-
-状態を作る。
-
-## 今後確認する項目
-
-- 各ProviderでTool Callingの形式差がどこまで存在するか
-- Structured Outputの互換性
-- Streaming差異
-- Reasoning設定差異
-- 各無料枠の実効rate limit
-- Vercel $5 Free creditsでLunaが実際に利用可能か
-- 各ProviderでAgent workloadをどれだけ処理できるか
-- 無料モデルの品質比較
-
-## 判断基準
-
-このプロジェクトは「無料資源を隅から隅まで回収する」ことが目的ではない。
-
-追加Providerの判断基準は、
+## 追加機能の判断基準
 
 > 得られるAI計算資源の価値 > 統合・保守コスト
 
-とする。
-
-面倒な認証、特殊な専用環境、小さすぎる無料枠などは、無料でも積極的に採用しない。
-
-新しいProviderは簡単に追加・削除できる構造を優先する。
-
-## Layer 1 定義
-
-OpenRouterに近い共通AIリクエスト形式を受け取り、リクエストで明示された6つのupstreamのいずれかへ、Provider Adapterを介して透過的に転送し、応答を共通形式へ正規化する。Providerの自動選択は行わない。
+無料であっても、認証が過度に複雑、小さすぎるquota、特殊環境が必須などの場合は無理に採用しない。
