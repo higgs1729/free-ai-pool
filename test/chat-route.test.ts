@@ -93,8 +93,63 @@ describe("POST /v1/chat/completions", () => {
     });
   });
 
-  it("rejects streaming until the SSE slice is implemented", async () => {
-    app = buildApp(loadConfig({ LOG_LEVEL: "silent" }));
+  it("streams OpenRouter SSE chunks and terminates with DONE", async () => {
+    const upstreamSse = [
+      ": OPENROUTER PROCESSING",
+      "",
+      `data: ${JSON.stringify({
+        id: "gen-stream-1",
+        object: "chat.completion.chunk",
+        created: 1_777_000_002,
+        model: "resolved/free-model",
+        choices: [
+          {
+            index: 0,
+            delta: { role: "assistant", content: "po" },
+            finish_reason: null,
+          },
+        ],
+      })}`,
+      "",
+      `data: ${JSON.stringify({
+        id: "gen-stream-1",
+        object: "chat.completion.chunk",
+        created: 1_777_000_002,
+        model: "resolved/free-model",
+        choices: [
+          {
+            index: 0,
+            delta: { content: "ng" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: {
+          prompt_tokens: 2,
+          completion_tokens: 1,
+          total_tokens: 3,
+        },
+      })}`,
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n");
+
+    const fetchMock = vi.fn(async () =>
+      new Response(upstreamSse, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+
+    const registry = new ProviderRegistry();
+    registry.register(
+      new OpenRouterAdapter({
+        apiKey: "test-key",
+        fetchImpl: fetchMock as unknown as typeof fetch,
+      }),
+    );
+
+    app = buildApp(loadConfig({ LOG_LEVEL: "silent" }), registry);
 
     const response = await app.inject({
       method: "POST",
@@ -107,11 +162,12 @@ describe("POST /v1/chat/completions", () => {
       },
     });
 
-    expect(response.statusCode).toBe(501);
-    expect(response.json()).toMatchObject({
-      error: {
-        code: "streaming_not_implemented",
-      },
-    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/event-stream");
+    expect(response.body).toContain('"provider":"openrouter"');
+    expect(response.body).toContain('"content":"po"');
+    expect(response.body).toContain('"content":"ng"');
+    expect(response.body).toContain('"total_tokens":3');
+    expect(response.body).toContain("data: [DONE]");
   });
 });
