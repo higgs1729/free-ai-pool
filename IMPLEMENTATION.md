@@ -143,16 +143,17 @@ Gemini固有の `extra_body.google.*` 等は、必要になった時点でprovid
 
 ### 実API E2E
 
-2026-08-26にGoogle AI Studioで発行したFree Tier API keyを用いて以下を確認済み。
+2026-08-26にGoogle AI Studioで発行したFree Tier API keyを用いて主要3経路を確認済み。
 
 - `GET /v1/models?provider=gemini` ✅
 - 非streaming chat completion ✅
+- SSE streaming ✅
 
 `gemini-2.5-flash` はModels APIには列挙されたが、新規ユーザー向けchat completionではupstream 404となり、Gemini側が `gemini-3.6-flash` への移行を案内した。Free AI Poolはこのupstream status / detailsを正規化して返却できた。
 
 `gemini-3.6-flash` では正常に `chat.completion` が返り、usageも取得できた。
 
-Gemini SSE streamingの実API E2Eは未確認。
+SSEではcontentが複数chunkに分割され、Gemini固有の `extra_content.google.thought_signature` を保持したまま `finish_reason: stop` と `data: [DONE]` まで正常にstreamされた。
 
 ## Layer 2 — OpenAI-compatible API
 
@@ -191,7 +192,7 @@ Provider固有機能は無理に完全抽象化しない。
 4. ✅ `/v1/chat/completions` の最小版を公開
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. ✅ `/v1/models` を追加
-7. ✅ Gemini Adapter（実API models / 非streaming確認済み、SSE実確認待ち）
+7. ✅ Gemini Adapter（実API models / 非streaming / SSE確認済み）
 8. Groq Adapter
 9. Z.AI Adapter
 10. Kilo Adapter
