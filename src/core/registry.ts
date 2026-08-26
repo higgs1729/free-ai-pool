@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import { GeminiAdapter } from "../providers/gemini.js";
 import { OpenRouterAdapter } from "../providers/openrouter.js";
 import type { ProviderAdapter } from "./provider.js";
 import type { ProviderId } from "./types.js";
@@ -25,6 +26,15 @@ export function createProviderRegistry(config: AppConfig): ProviderRegistry {
         baseUrl: config.OPENROUTER_BASE_URL,
         httpReferer: config.OPENROUTER_HTTP_REFERER,
         title: config.OPENROUTER_X_TITLE,
+      }),
+    );
+  }
+
+  if (config.GEMINI_API_KEY) {
+    registry.register(
+      new GeminiAdapter({
+        apiKey: config.GEMINI_API_KEY,
+        baseUrl: config.GEMINI_BASE_URL,
       }),
     );
   }
