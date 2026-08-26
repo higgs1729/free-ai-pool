@@ -89,12 +89,14 @@ export interface ReasoningOptions {
 /**
  * Common request shape for Free AI Pool.
  *
- * OpenRouter's /api/v1/chat/completions request is the baseline. `provider` is
- * the only Free AI Pool routing extension; adapters strip it before forwarding.
- * Provider-specific adapters may translate or drop unsupported fields.
+ * OpenRouter's /api/v1/chat/completions request is the baseline. Pool-level
+ * upstream selection is transport metadata and is intentionally not part of
+ * this type, because OpenRouter itself owns a top-level `provider` routing
+ * object. HTTP callers should select the pool upstream with
+ * X-Free-AI-Pool-Provider. A legacy string `provider` body field is accepted
+ * at the HTTP boundary and removed before adapters receive this request.
  */
 export interface CommonChatRequest {
-  provider: ProviderId;
   model: string;
   messages: ChatMessage[];
   stream?: boolean;
@@ -111,6 +113,7 @@ export interface CommonChatRequest {
   response_format?: ResponseFormat;
   reasoning?: ReasoningOptions;
   include_reasoning?: boolean;
+  provider?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
