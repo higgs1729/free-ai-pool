@@ -157,7 +157,7 @@ SSEではcontentが複数chunkに分割され、Gemini固有の `extra_content.g
 
 ## Z.AI
 
-OpenRouter Free / Gemini Flashで通常〜中難度帯が確保できたため、Z.AIを先に高難度タスク向けProviderとして実装する。
+Z.AIの無料Flashは最上位モデルの代替としてではなく、**無料で長時間回しやすい単純・大量タスク実行役**として使う。OpenRouter Free / Geminiが通常以上のタスクを担当し、Z.AI Flashには分類、変換、短い抽出、定型応答など、推論をほぼ必要としない処理を寄せる。
 
 一般API Base URL:
 
@@ -190,11 +190,18 @@ https://api.z.ai/api/coding/paas/v4
 
 Z.AIの公式OpenAPIには現時点でModels list endpointが記載されていないため、`GET /v1/models?provider=zai` は実API仕様を確認してから追加する。手書きmodel catalogは持たない。
 
-### 無料枠に関する確認事項
+### 実API E2E
 
-一般API pricingでは上位GLMは従量課金で、恒常無料モデルとして `GLM-4.7-Flash` / `GLM-4.5-Flash` が掲載されている。一方、Coding側には新規ユーザー向けtrial quotaが存在する。
+2026-08-26に一般API + 無料Flashで実確認した。
 
-高難度枠として上位GLMを無料利用するには、Z.AIで発行したCoding用API keyがtrial quotaを `https://api.z.ai/api/coding/paas/v4` 経由で消費できるか実E2Eで確認する。
+- `glm-4.7-flash` は最初のFree AI Pool経由リクエストで upstream `HTTP 429 / code 1305`（temporarily overloaded）を返した。Free AI Pool側のerror normalizationは正常に動作した。
+- `glm-4.5-flash` をZ.AIへ直接、thinkingデフォルトで送ると成功したが、接続 `0.086s` に対して最初の応答まで `27.353s`。`zai-ok` を返すだけで `completion_tokens=283` の大半を `reasoning_content` に消費した。
+- Free AI Pool経由で `reasoning.enabled=false` を指定すると、同じ定型応答が `completion_tokens=4` で高速に成功した ✅
+- `glm-4.5-flash` + `reasoning.enabled=false` のSSE streamingも成功。`1`〜`5` が逐次chunkで返り、最終chunkにusage、最後に `data: [DONE]` まで到達した ✅
+
+この実測から、**単純タスクではZ.AI Flashのthinking OFFを基本運用とする**。thinking ONは簡単な命令でも推論tokenと待ち時間が大きくなるため、明示的に必要な場合だけ使う。
+
+恒常無料モデルとして `GLM-4.7-Flash` / `GLM-4.5-Flash` を候補とするが、混雑や一時的なoverloadは起こり得るため、無制限相当の無料枠と瞬間的な可用性は別問題として扱う。
 
 ## Layer 2 — OpenAI-compatible API
 
@@ -234,7 +241,7 @@ Provider固有機能は無理に完全抽象化しない。
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. ✅ `/v1/models` を追加
 7. ✅ Gemini Adapter（実API models / 非streaming / SSE確認済み）
-8. ⏳ Z.AI Adapter（mock実装済み、API key / trial quota実確認待ち）
+8. ✅ Z.AI Adapter（実API non-streaming / thinking OFF / SSE確認済み）
 9. Groq Adapter
 10. Kilo Adapter
 11. Vercel Adapter
