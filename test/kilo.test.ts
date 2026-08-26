@@ -66,17 +66,21 @@ describe("KiloAdapter", () => {
   });
 
   it("adds bearer auth when a Kilo API key is configured", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: "kilo-chat-2",
-          object: "chat.completion",
-          created: 1_777_000_031,
-          model: "kilo-auto/free",
-          choices: [],
-        }),
-        { status: 200 },
-      ),
+    const fetchMock = vi.fn(
+      async (
+        _input: Parameters<typeof fetch>[0],
+        _init?: Parameters<typeof fetch>[1],
+      ) =>
+        new Response(
+          JSON.stringify({
+            id: "kilo-chat-2",
+            object: "chat.completion",
+            created: 1_777_000_031,
+            model: "kilo-auto/free",
+            choices: [],
+          }),
+          { status: 200 },
+        ),
     );
 
     const adapter = new KiloAdapter({
