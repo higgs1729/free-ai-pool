@@ -105,7 +105,12 @@ const ReasoningSchema = z
 
 export const ChatCompletionRequestSchema = z
   .object({
-    provider: ProviderIdSchema,
+    // String values are the legacy Free AI Pool routing extension. Object
+    // values are OpenRouter's native provider-routing preferences and must be
+    // preserved for the OpenRouter adapter.
+    provider: z
+      .union([ProviderIdSchema, z.record(z.string(), z.unknown())])
+      .optional(),
     model: z.string().min(1),
     messages: z.array(MessageSchema).min(1),
     stream: z.boolean().optional(),
