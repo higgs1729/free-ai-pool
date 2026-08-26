@@ -31,6 +31,8 @@
 - upstream内部のroutingはそのupstreamへ任せる。
 - OpenRouterを基準実装とし、他ProviderはOpenRouterとの差分をAdapterで吸収する。
 - model IDは可能な限りupstream native IDをそのまま使う。
+- 共通chat型のfield名・shapeはOpenRouter `/api/v1/chat/completions` を基準にし、`provider` のみFree AI Pool固有のrouting fieldとして追加する。
+- `tool_calls`, `tool_call_id`, `response_format`, `json_schema`, `reasoning_details`, `max_tokens`, `prompt_tokens` 等はOpenRouter nativeのsnake_caseを維持する。
 
 例:
 
@@ -55,6 +57,29 @@
 `openrouter/free` はOpenRouter自身が現在利用可能な無料モデルへroutingするため、その内部選択はOpenRouterへ任せる。
 
 Free AI Pool側のProvider自動選択とは別物なので、Layer 1の原則には反しない。
+
+### 現在の実装状況
+
+`feat/bootstrap` / PR #1 で以下まで実装済み。
+
+- TypeScript / Fastifyの最小サービス
+- OpenRouter基準の共通chat request / response型
+- Provider Adapter interface / registry
+- OpenRouter Adapter
+- `POST /v1/chat/completions`
+- `openrouter/free` の非streaming pass-through
+- SSE streaming pass-through
+- Tool Calling request shape
+- Structured Output (`response_format.json_schema`) request shape
+- Reasoning (`reasoning`, `reasoning_details`) request / response shape
+- visionの `image_url` input shape
+- upstream error normalization
+- request abortのupstream伝播
+- CI: typecheck / tests / build
+
+OpenRouter AdapterではFree AI Pool固有の `provider` だけを除去し、OpenRouter互換fieldは原則そのままupstreamへ渡す。
+
+実OpenRouter API keyを用いたE2Eはローカル/secret設定後に確認する。
 
 ### 将来候補: `free-best`
 
@@ -103,11 +128,11 @@ Provider固有機能は無理に完全抽象化しない。
 
 ## 実装順
 
-1. 共通request / response型を定義
-2. OpenRouter Adapterを実装
-3. `openrouter/free` で一本通す
-4. `/v1/chat/completions` の最小版を公開
-5. streaming / tool calling / structured outputを追加
+1. ✅ 共通request / response型を定義
+2. ✅ OpenRouter Adapterを実装
+3. ✅ `openrouter/free` で一本通す（mock integration testまで。実API E2Eはkey設定後）
+4. ✅ `/v1/chat/completions` の最小版を公開
+5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. `/v1/models` を追加
 7. Gemini Adapter
 8. Groq Adapter
