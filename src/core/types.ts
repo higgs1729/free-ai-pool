@@ -163,3 +163,28 @@ export interface CommonChatChunk {
   usage?: Usage;
   [key: string]: unknown;
 }
+
+/** OpenRouter /api/v1/models is the baseline model metadata shape. */
+export interface CommonModel {
+  provider: ProviderId;
+  id: string;
+  canonical_slug?: string;
+  name?: string;
+  created?: number;
+  description?: string;
+  context_length?: number;
+  architecture?: Record<string, unknown>;
+  pricing?: Record<string, unknown>;
+  top_provider?: Record<string, unknown>;
+  per_request_limits?: unknown;
+  supported_parameters?: string[];
+  default_parameters?: Record<string, unknown> | null;
+  expiration_date?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CommonModelListResponse {
+  data: CommonModel[];
+}
+
+export type ModelListQuery = Record<string, string>;
