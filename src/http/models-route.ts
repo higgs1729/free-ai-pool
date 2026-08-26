@@ -11,7 +11,7 @@ const PROVIDER_IDS = new Set<ProviderId>([
   "kilo",
   "vercel",
 ]);
-const IMPLEMENTED_PROVIDERS = new Set<ProviderId>(["openrouter"]);
+const IMPLEMENTED_PROVIDERS = new Set<ProviderId>(["openrouter", "gemini"]);
 
 export function registerModelsRoute(
   app: FastifyInstance,
