@@ -1,5 +1,6 @@
 import type { AppConfig } from "../config.js";
 import { GeminiAdapter } from "../providers/gemini.js";
+import { GroqAdapter } from "../providers/groq.js";
 import { OpenRouterAdapter } from "../providers/openrouter.js";
 import { ZaiAdapter } from "../providers/zai.js";
 import type { ProviderAdapter } from "./provider.js";
@@ -45,6 +46,15 @@ export function createProviderRegistry(config: AppConfig): ProviderRegistry {
       new ZaiAdapter({
         apiKey: config.ZAI_API_KEY,
         baseUrl: config.ZAI_BASE_URL,
+      }),
+    );
+  }
+
+  if (config.GROQ_API_KEY) {
+    registry.register(
+      new GroqAdapter({
+        apiKey: config.GROQ_API_KEY,
+        baseUrl: config.GROQ_BASE_URL,
       }),
     );
   }
