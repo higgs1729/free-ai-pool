@@ -33,6 +33,7 @@
 - model IDは可能な限りupstream native IDをそのまま使う。
 - 共通chat型のfield名・shapeはOpenRouter `/api/v1/chat/completions` を基準にし、`provider` のみFree AI Pool固有のrouting fieldとして追加する。
 - `tool_calls`, `tool_call_id`, `response_format`, `json_schema`, `reasoning_details`, `max_tokens`, `prompt_tokens` 等はOpenRouter nativeのsnake_caseを維持する。
+- `GET /v1/models` は引数なしではOpenRouter Models APIを基準とし、他Providerを明示する場合のみ `?provider=...` をFree AI Pool拡張として使う。
 
 例:
 
@@ -73,11 +74,15 @@ Free AI Pool側のProvider自動選択とは別物なので、Layer 1の原則�
 - Structured Output (`response_format.json_schema`) request shape
 - Reasoning (`reasoning`, `reasoning_details`) request / response shape
 - visionの `image_url` input shape
+- `GET /v1/models`
+- OpenRouter Models API metadata / query parameter pass-through
 - upstream error normalization
 - request abortのupstream伝播
 - CI: typecheck / tests / build
 
 OpenRouter AdapterではFree AI Pool固有の `provider` だけを除去し、OpenRouter互換fieldは原則そのままupstreamへ渡す。
+
+`/v1/models` ではOpenRouterのmodel metadataを維持し、各modelへFree AI Poolの `provider` fieldのみ追加する。`supported_parameters`, `output_modalities`, `sort` 等のOpenRouter query parameterはupstreamへ透過する。
 
 実OpenRouter API keyを用いたE2Eはローカル/secret設定後に確認する。
 
@@ -133,7 +138,7 @@ Provider固有機能は無理に完全抽象化しない。
 3. ✅ `openrouter/free` で一本通す（mock integration testまで。実API E2Eはkey設定後）
 4. ✅ `/v1/chat/completions` の最小版を公開
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
-6. `/v1/models` を追加
+6. ✅ `/v1/models` を追加
 7. Gemini Adapter
 8. Groq Adapter
 9. Z.AI Adapter
