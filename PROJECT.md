@@ -189,17 +189,25 @@ Provider Config
   └─ Vercel
 ```
 
-Provider差分は可能な限り、
+Provider差分は可能な限りAdapterへ閉じ込める。
 
-```ts
+共通chat request / responseの基準shapeはOpenRouter `/api/v1/chat/completions` とする。Free AI Pool固有の追加はrouting用 `provider` fieldのみを基本とし、OpenRouter互換field名はsnake_caseのまま維持する。
+
+例:
+
+```json
 {
-  baseURL,
-  apiKey,
-  model
+  "provider": "openrouter",
+  "model": "openrouter/free",
+  "messages": [
+    { "role": "user", "content": "hello" }
+  ],
+  "max_tokens": 1024,
+  "tool_choice": "auto"
 }
 ```
 
-程度に閉じ込める。
+他Provider側の差異はAdapterでOpenRouter基準shapeとの間を変換する。
 
 ### OpenAI互換を積極利用する
 
@@ -253,15 +261,17 @@ docker compose up
 
 ### v1
 
-1. プロジェクトの最小構成を決める
-2. 共通LLM clientのinterfaceを決める
-3. Provider設定形式を決める
-4. OpenRouter Freeを最初に実装
+1. ✅ プロジェクトの最小構成を決める
+2. ✅ 共通LLM clientのinterfaceを決める
+3. ✅ Provider設定形式を決める
+4. ✅ OpenRouter Freeを最初に実装（mock integration + SSEまで）
 5. Geminiを追加
 6. Groqを追加
 7. Z.AIを追加
 8. Kiloを追加
 9. Vercelを追加
+
+`/v1/models` と実OpenRouter API keyでのE2E確認も次段階で行う。
 
 重要なのは、6 Providerを一気に高度に統合しないこと。
 
