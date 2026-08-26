@@ -3,6 +3,8 @@ import type {
   CommonChatChunk,
   CommonChatRequest,
   CommonChatResponse,
+  CommonModelListResponse,
+  ModelListQuery,
 } from "../core/types.js";
 import type {
   ProviderAdapter,
@@ -44,7 +46,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
   ): Promise<CommonChatResponse> {
     this.assertProvider(request);
 
-    const response = await this.send(request, false, context);
+    const response = await this.sendChat(request, false, context);
     const payload = await readJsonOrText(response);
 
     if (!response.ok) {
@@ -73,7 +75,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
   ): AsyncIterable<CommonChatChunk> {
     this.assertProvider(request);
 
-    const response = await this.send(request, true, context);
+    const response = await this.sendChat(request, true, context);
 
     if (!response.ok) {
       const payload = await readJsonOrText(response);
@@ -135,6 +137,57 @@ export class OpenRouterAdapter implements ProviderAdapter {
     }
   }
 
+  async listModels(
+    query: ModelListQuery = {},
+    context?: ProviderRequestContext,
+  ): Promise<CommonModelListResponse> {
+    const search = new URLSearchParams(query);
+    const url = `${this.baseUrl}/models${search.size > 0 ? `?${search.toString()}` : ""}`;
+    const init: RequestInit = {
+      method: "GET",
+      headers: this.buildHeaders(),
+    };
+
+    if (context?.signal) {
+      init.signal = context.signal;
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(url, init);
+    } catch (cause) {
+      throw new ProviderError({
+        provider: this.id,
+        message: "Failed to reach OpenRouter",
+        statusCode: 502,
+        cause,
+      });
+    }
+
+    const payload = await readJsonOrText(response);
+
+    if (!response.ok) {
+      throw createUpstreamError(response, payload);
+    }
+
+    if (!isModelListPayload(payload)) {
+      throw new ProviderError({
+        provider: this.id,
+        message: "OpenRouter returned an invalid models response",
+        statusCode: 502,
+        upstreamStatus: response.status,
+        details: payload,
+      });
+    }
+
+    return {
+      data: payload.data.map((model) => ({
+        ...model,
+        provider: this.id,
+      })),
+    };
+  }
+
   private assertProvider(request: CommonChatRequest): void {
     if (request.provider !== this.id) {
       throw new ProviderError({
@@ -145,7 +198,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
     }
   }
 
-  private async send(
+  private async sendChat(
     request: CommonChatRequest,
     stream: boolean,
     context?: ProviderRequestContext,
@@ -286,6 +339,16 @@ function isChatCompletionPayload(payload: unknown): payload is Record<string, un
     typeof payload.model === "string" &&
     typeof payload.created === "number" &&
     Array.isArray(payload.choices)
+  );
+}
+
+function isModelListPayload(
+  payload: unknown,
+): payload is { data: Array<Record<string, unknown> & { id: string }> } {
+  return (
+    isRecord(payload) &&
+    Array.isArray(payload.data) &&
+    payload.data.every((model) => isRecord(model) && typeof model.id === "string")
   );
 }
 
