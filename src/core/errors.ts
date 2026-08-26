@@ -3,8 +3,8 @@ import type { ProviderId } from "./types.js";
 export class ProviderError extends Error {
   readonly provider: ProviderId;
   readonly statusCode: number;
-  readonly upstreamStatus?: number;
-  readonly details?: unknown;
+  readonly upstreamStatus: number | undefined;
+  readonly details: unknown;
 
   constructor(options: {
     provider: ProviderId;
