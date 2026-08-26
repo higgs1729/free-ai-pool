@@ -15,13 +15,16 @@ export interface TextContentPart {
 
 export interface ImageUrlContentPart {
   type: "image_url";
-  imageUrl: {
+  image_url: {
     url: string;
     detail?: "auto" | "low" | "high";
   };
 }
 
-export type MessageContent = string | Array<TextContentPart | ImageUrlContentPart> | null;
+export type MessageContent =
+  | string
+  | Array<TextContentPart | ImageUrlContentPart>
+  | null;
 
 export interface ToolCall {
   id: string;
@@ -32,12 +35,16 @@ export interface ToolCall {
   };
 }
 
+export type ReasoningDetail = Record<string, unknown>;
+
 export interface ChatMessage {
   role: ChatRole;
   content: MessageContent;
   name?: string;
-  toolCallId?: string;
-  toolCalls?: ToolCall[];
+  tool_call_id?: string;
+  tool_calls?: ToolCall[];
+  reasoning?: string | null;
+  reasoning_details?: ReasoningDetail[];
 }
 
 export interface ToolDefinition {
@@ -45,7 +52,8 @@ export interface ToolDefinition {
   function: {
     name: string;
     description?: string;
-    parameters: Record<string, unknown>;
+    parameters?: Record<string, unknown>;
+    strict?: boolean;
   };
 }
 
@@ -63,7 +71,7 @@ export type ResponseFormat =
   | { type: "json_object" }
   | {
       type: "json_schema";
-      jsonSchema: {
+      json_schema: {
         name: string;
         description?: string;
         schema: Record<string, unknown>;
@@ -72,55 +80,86 @@ export type ResponseFormat =
     };
 
 export interface ReasoningOptions {
-  effort?: "minimal" | "low" | "medium" | "high";
-  maxTokens?: number;
+  effort?: "max" | "xhigh" | "high" | "medium" | "low" | "minimal" | "none";
+  max_tokens?: number;
+  exclude?: boolean;
+  enabled?: boolean;
 }
 
+/**
+ * Common request shape for Free AI Pool.
+ *
+ * OpenRouter's /api/v1/chat/completions request is the baseline. `provider` is
+ * the only Free AI Pool routing extension; adapters strip it before forwarding.
+ * Provider-specific adapters may translate or drop unsupported fields.
+ */
 export interface CommonChatRequest {
   provider: ProviderId;
   model: string;
   messages: ChatMessage[];
   stream?: boolean;
   temperature?: number;
-  maxTokens?: number;
+  top_p?: number;
+  max_tokens?: number;
+  stop?: string | string[];
+  seed?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
   tools?: ToolDefinition[];
-  toolChoice?: ToolChoice;
-  responseFormat?: ResponseFormat;
+  tool_choice?: ToolChoice;
+  parallel_tool_calls?: boolean;
+  response_format?: ResponseFormat;
   reasoning?: ReasoningOptions;
+  include_reasoning?: boolean;
+  [key: string]: unknown;
 }
 
-export type FinishReason = "stop" | "length" | "tool_calls" | "content_filter" | null;
+export type FinishReason =
+  | "stop"
+  | "length"
+  | "tool_calls"
+  | "content_filter"
+  | "error"
+  | (string & {})
+  | null;
 
 export interface ChatChoice {
   index: number;
   message: ChatMessage;
-  finishReason: FinishReason;
+  finish_reason: FinishReason;
 }
 
 export interface Usage {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_tokens_details?: Record<string, unknown>;
+  completion_tokens_details?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface CommonChatResponse {
   id: string;
+  object?: string;
   provider: ProviderId;
   model: string;
   created: number;
   choices: ChatChoice[];
   usage?: Usage;
+  [key: string]: unknown;
 }
 
 export interface CommonChatChunk {
   id: string;
+  object?: string;
   provider: ProviderId;
   model: string;
   created: number;
   choices: Array<{
     index: number;
     delta: Partial<ChatMessage>;
-    finishReason: FinishReason;
+    finish_reason: FinishReason;
   }>;
   usage?: Usage;
+  [key: string]: unknown;
 }
