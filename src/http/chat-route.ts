@@ -17,7 +17,7 @@ const PROVIDER_IDS = new Set<ProviderId>([
   "kilo",
   "vercel",
 ]);
-const IMPLEMENTED_PROVIDERS = new Set<ProviderId>(["openrouter", "gemini"]);
+const IMPLEMENTED_PROVIDERS = new Set<ProviderId>(PROVIDER_IDS);
 const POOL_PROVIDER_HEADER = "x-free-ai-pool-provider";
 
 export function registerChatCompletionRoute(

@@ -41,7 +41,13 @@ const AppConfigSchema = z.object({
   GROQ_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
 
   KILO_API_KEY: optionalNonEmptyString,
+  KILO_BASE_URL: z.string().url().default("https://api.kilo.ai/api/gateway"),
+
   VERCEL_AI_GATEWAY_API_KEY: optionalNonEmptyString,
+  VERCEL_AI_GATEWAY_BASE_URL: z
+    .string()
+    .url()
+    .default("https://ai-gateway.vercel.sh/v1"),
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;

@@ -23,5 +23,7 @@ describe("loadConfig", () => {
     expect(config.ZAI_API_KEY).toBeUndefined();
     expect(config.KILO_API_KEY).toBeUndefined();
     expect(config.VERCEL_AI_GATEWAY_API_KEY).toBeUndefined();
+    expect(config.KILO_BASE_URL).toBe("https://api.kilo.ai/api/gateway");
+    expect(config.VERCEL_AI_GATEWAY_BASE_URL).toBe("https://ai-gateway.vercel.sh/v1");
   });
 });

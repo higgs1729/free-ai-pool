@@ -5,55 +5,53 @@ import type {
   CommonChatResponse,
   CommonModelListResponse,
   ModelListQuery,
+  ProviderId,
 } from "../core/types.js";
 import type {
   ProviderAdapter,
   ProviderRequestContext,
 } from "../core/provider.js";
-import {
-  buildFreeBestQuery,
-  freeBestCacheKey,
-  selectFreeBestModel,
-} from "./openrouter-free-best.js";
 
 type FetchLike = typeof globalThis.fetch;
 
-export interface OpenRouterAdapterOptions {
-  apiKey: string;
-  baseUrl?: string | undefined;
-  httpReferer?: string | undefined;
-  title?: string | undefined;
+type RequestTransform = (
+  request: CommonChatRequest,
+  stream: boolean,
+) => Record<string, unknown>;
+
+export interface OpenAiCompatibleGatewayAdapterOptions {
+  id: ProviderId;
+  displayName: string;
+  baseUrl: string;
+  apiKey?: string | undefined;
   fetchImpl?: FetchLike | undefined;
-  freeBestCacheTtlMs?: number | undefined;
+  transformRequest?: RequestTransform | undefined;
+  extraHeaders?: Record<string, string> | undefined;
 }
 
-const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
-const DEFAULT_FREE_BEST_CACHE_TTL_MS = 5 * 60 * 1000;
+/**
+ * Small shared transport for gateways that expose the OpenAI Chat Completions
+ * and Models endpoints without requiring provider-specific response shaping.
+ * Provider-specific request differences stay in transformRequest.
+ */
+export class OpenAiCompatibleGatewayAdapter implements ProviderAdapter {
+  readonly id: ProviderId;
 
-export class OpenRouterAdapter implements ProviderAdapter {
-  readonly id = "openrouter" as const;
-
-  private readonly apiKey: string;
+  private readonly displayName: string;
   private readonly baseUrl: string;
-  private readonly httpReferer: string | undefined;
-  private readonly title: string | undefined;
+  private readonly apiKey: string | undefined;
   private readonly fetchImpl: FetchLike;
-  private readonly freeBestCacheTtlMs: number;
-  private readonly freeBestCache = new Map<
-    string,
-    { modelId: string; expiresAt: number }
-  >();
+  private readonly transformRequest: RequestTransform;
+  private readonly extraHeaders: Record<string, string>;
 
-  constructor(options: OpenRouterAdapterOptions) {
+  constructor(options: OpenAiCompatibleGatewayAdapterOptions) {
+    this.id = options.id;
+    this.displayName = options.displayName;
+    this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.apiKey = options.apiKey;
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
-    this.httpReferer = options.httpReferer;
-    this.title = options.title;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
-    this.freeBestCacheTtlMs = Math.max(
-      0,
-      options.freeBestCacheTtlMs ?? DEFAULT_FREE_BEST_CACHE_TTL_MS,
-    );
+    this.transformRequest = options.transformRequest ?? defaultTransformRequest;
+    this.extraHeaders = options.extraHeaders ?? {};
   }
 
   async chat(
@@ -64,13 +62,13 @@ export class OpenRouterAdapter implements ProviderAdapter {
     const payload = await readJsonOrText(response);
 
     if (!response.ok) {
-      throw createUpstreamError(response, payload);
+      throw this.createUpstreamError(response, payload);
     }
 
     if (!isChatCompletionPayload(payload)) {
       throw new ProviderError({
         provider: this.id,
-        message: "OpenRouter returned an invalid chat completion response",
+        message: `${this.displayName} returned an invalid chat completion response`,
         statusCode: 502,
         upstreamStatus: response.status,
         details: payload,
@@ -91,13 +89,13 @@ export class OpenRouterAdapter implements ProviderAdapter {
 
     if (!response.ok) {
       const payload = await readJsonOrText(response);
-      throw createUpstreamError(response, payload);
+      throw this.createUpstreamError(response, payload);
     }
 
     if (!response.body) {
       throw new ProviderError({
         provider: this.id,
-        message: "OpenRouter returned an empty streaming response",
+        message: `${this.displayName} returned an empty streaming response`,
         statusCode: 502,
         upstreamStatus: response.status,
       });
@@ -114,7 +112,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
       } catch (cause) {
         throw new ProviderError({
           provider: this.id,
-          message: "OpenRouter returned invalid JSON in its SSE stream",
+          message: `${this.displayName} returned invalid JSON in its SSE stream`,
           statusCode: 502,
           upstreamStatus: response.status,
           details: data,
@@ -125,7 +123,9 @@ export class OpenRouterAdapter implements ProviderAdapter {
       if (isRecord(payload) && "error" in payload) {
         throw new ProviderError({
           provider: this.id,
-          message: extractUpstreamMessage(payload) ?? "OpenRouter streaming request failed",
+          message:
+            extractUpstreamMessage(payload) ??
+            `${this.displayName} streaming request failed`,
           statusCode: 502,
           upstreamStatus: response.status,
           details: payload,
@@ -135,7 +135,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
       if (!isChatCompletionPayload(payload)) {
         throw new ProviderError({
           provider: this.id,
-          message: "OpenRouter returned an invalid chat completion SSE chunk",
+          message: `${this.displayName} returned an invalid chat completion SSE chunk`,
           statusCode: 502,
           upstreamStatus: response.status,
           details: payload,
@@ -157,7 +157,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
     const url = `${this.baseUrl}/models${search.size > 0 ? `?${search.toString()}` : ""}`;
     const init: RequestInit = {
       method: "GET",
-      headers: this.buildHeaders(),
+      headers: this.buildHeaders(false),
     };
 
     if (context?.signal) {
@@ -170,22 +170,21 @@ export class OpenRouterAdapter implements ProviderAdapter {
     } catch (cause) {
       throw new ProviderError({
         provider: this.id,
-        message: "Failed to reach OpenRouter",
+        message: `Failed to reach ${this.displayName}`,
         statusCode: 502,
         cause,
       });
     }
 
     const payload = await readJsonOrText(response);
-
     if (!response.ok) {
-      throw createUpstreamError(response, payload);
+      throw this.createUpstreamError(response, payload);
     }
 
     if (!isModelListPayload(payload)) {
       throw new ProviderError({
         provider: this.id,
-        message: "OpenRouter returned an invalid models response",
+        message: `${this.displayName} returned an invalid models response`,
         statusCode: 502,
         upstreamStatus: response.status,
         details: payload,
@@ -205,16 +204,10 @@ export class OpenRouterAdapter implements ProviderAdapter {
     stream: boolean,
     context?: ProviderRequestContext,
   ): Promise<Response> {
-    const resolvedRequest = await this.resolveFreeBestRequest(request, context);
-    const { stream: _stream, ...openRouterRequest } = resolvedRequest;
-
     const init: RequestInit = {
       method: "POST",
-      headers: this.buildHeaders(),
-      body: JSON.stringify({
-        ...openRouterRequest,
-        stream,
-      }),
+      headers: this.buildHeaders(true),
+      body: JSON.stringify(this.transformRequest(request, stream)),
     };
 
     if (context?.signal) {
@@ -226,67 +219,47 @@ export class OpenRouterAdapter implements ProviderAdapter {
     } catch (cause) {
       throw new ProviderError({
         provider: this.id,
-        message: "Failed to reach OpenRouter",
+        message: `Failed to reach ${this.displayName}`,
         statusCode: 502,
         cause,
       });
     }
   }
 
-  private async resolveFreeBestRequest(
-    request: CommonChatRequest,
-    context?: ProviderRequestContext,
-  ): Promise<CommonChatRequest> {
-    if (request.model !== "free-best") {
-      return request;
+  private buildHeaders(includeContentType: boolean): Record<string, string> {
+    const headers: Record<string, string> = { ...this.extraHeaders };
+
+    if (includeContentType) {
+      headers["Content-Type"] = "application/json";
     }
 
-    const cacheKey = freeBestCacheKey(request);
-    const now = Date.now();
-    const cached = this.freeBestCache.get(cacheKey);
-    if (cached && cached.expiresAt > now) {
-      return { ...request, model: cached.modelId };
-    }
-
-    const query = buildFreeBestQuery(request);
-    const models = await this.listModels(query, context);
-    const selected = selectFreeBestModel(models.data, request, now);
-
-    if (!selected) {
-      throw new ProviderError({
-        provider: this.id,
-        message: "No eligible OpenRouter free model is currently available for free-best",
-        statusCode: 503,
-        details: { query },
-      });
-    }
-
-    if (this.freeBestCacheTtlMs > 0) {
-      this.freeBestCache.set(cacheKey, {
-        modelId: selected.id,
-        expiresAt: now + this.freeBestCacheTtlMs,
-      });
-    }
-
-    return { ...request, model: selected.id };
-  }
-
-  private buildHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
-      "Content-Type": "application/json",
-    };
-
-    if (this.httpReferer) {
-      headers["HTTP-Referer"] = this.httpReferer;
-    }
-
-    if (this.title) {
-      headers["X-Title"] = this.title;
+    if (this.apiKey) {
+      headers.Authorization = `Bearer ${this.apiKey}`;
     }
 
     return headers;
   }
+
+  private createUpstreamError(response: Response, payload: unknown): ProviderError {
+    return new ProviderError({
+      provider: this.id,
+      message:
+        extractUpstreamMessage(payload) ??
+        `${this.displayName} returned HTTP ${response.status}`,
+      statusCode: response.status,
+      upstreamStatus: response.status,
+      details: payload,
+    });
+  }
+}
+
+function defaultTransformRequest(
+  request: CommonChatRequest,
+  stream: boolean,
+): Record<string, unknown> {
+  const { stream: _stream, provider: _openRouterProviderRouting, ...compatible } =
+    request;
+  return { ...compatible, stream };
 }
 
 async function readJsonOrText(response: Response): Promise<unknown> {
@@ -321,39 +294,19 @@ async function* readSseData(
       buffer = lines.pop() ?? "";
 
       for (const line of lines) {
-        const data = parseSseLine(line);
-        if (data !== undefined) {
-          yield data;
+        if (line.startsWith("data:")) {
+          yield line.slice(5).trimStart();
         }
       }
     }
 
     buffer += decoder.decode();
-    const finalData = parseSseLine(buffer);
-    if (finalData !== undefined) {
-      yield finalData;
+    if (buffer.startsWith("data:")) {
+      yield buffer.slice(5).trimStart();
     }
   } finally {
     reader.releaseLock();
   }
-}
-
-function parseSseLine(line: string): string | undefined {
-  if (!line.startsWith("data:")) {
-    return undefined;
-  }
-
-  return line.slice(5).trimStart();
-}
-
-function createUpstreamError(response: Response, payload: unknown): ProviderError {
-  return new ProviderError({
-    provider: "openrouter",
-    message: extractUpstreamMessage(payload) ?? `OpenRouter returned HTTP ${response.status}`,
-    statusCode: response.status,
-    upstreamStatus: response.status,
-    details: payload,
-  });
 }
 
 function extractUpstreamMessage(payload: unknown): string | undefined {

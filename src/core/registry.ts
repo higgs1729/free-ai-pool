@@ -1,7 +1,9 @@
 import type { AppConfig } from "../config.js";
 import { GeminiAdapter } from "../providers/gemini.js";
 import { GroqAdapter } from "../providers/groq.js";
+import { KiloAdapter } from "../providers/kilo.js";
 import { OpenRouterAdapter } from "../providers/openrouter.js";
+import { VercelAdapter } from "../providers/vercel.js";
 import { ZaiAdapter } from "../providers/zai.js";
 import type { ProviderAdapter } from "./provider.js";
 import type { ProviderId } from "./types.js";
@@ -55,6 +57,22 @@ export function createProviderRegistry(config: AppConfig): ProviderRegistry {
       new GroqAdapter({
         apiKey: config.GROQ_API_KEY,
         baseUrl: config.GROQ_BASE_URL,
+      }),
+    );
+  }
+
+  registry.register(
+    new KiloAdapter({
+      baseUrl: config.KILO_BASE_URL,
+      ...(config.KILO_API_KEY ? { apiKey: config.KILO_API_KEY } : {}),
+    }),
+  );
+
+  if (config.VERCEL_AI_GATEWAY_API_KEY) {
+    registry.register(
+      new VercelAdapter({
+        apiKey: config.VERCEL_AI_GATEWAY_API_KEY,
+        baseUrl: config.VERCEL_AI_GATEWAY_BASE_URL,
       }),
     );
   }
