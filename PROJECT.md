@@ -24,15 +24,15 @@ Backend
 └─ Vercel
 ```
 
-Agent側は可能な限り、
+Free AI PoolのHTTP APIではupstream選択を原則headerで明示する。
 
-```ts
-provider = "openrouter"
-provider = "gemini"
-provider = "groq"
+```http
+X-Free-AI-Pool-Provider: openrouter
 ```
 
-程度の変更だけで動作するようにする。
+OpenRouter自身がbodyの `provider: {...}` をnative routing設定に利用するため、Free AI Pool側は同名fieldを恒久的に占有しない。
+
+後方互換として文字列body `provider: "openrouter"` も当面受理する。
 
 ### v1ではやらないこと
 
@@ -53,26 +53,26 @@ provider = "groq"
 
 既に利用中。
 
-- 累計$10以上credits購入済み
-- Freeモデル: 最大1,000 requests/day
-- 複数の無料モデルを利用可能
-- 現在OxAlpha等の比較的高性能な無料モデルが存在
-- v1の基準となる使用感
+- Freeモデルを複数利用可能
+- `openrouter/free` で利用可能な無料モデルへOpenRouter内部routing
+- v1の基準実装
+- OpenRouter Models APIをmodel metadataの基準にする
 
-OpenRouterへ$100以上入れても、Freeモデルの日次枠が1,000 requests/dayからさらに増える制度は現時点では確認されていない。
+2026-08-26にFree AI Pool経由の実API非streaming E2Eまで成功。確認時は `openrouter/free` が `minimax/minimax-m2.7:free` へ解決され、usageの `cost=0` も確認した。
 
 ### 2. Gemini API
 
-Antigravity専用ではなく、通常のGemini Developer APIとして利用可能。
+Antigravity専用ではなく、通常のGemini Developer APIとして利用する。
 
 - API keyで直接利用可能
-- OpenAI互換APIあり
+- 公式OpenAI compatibility APIあり
 - Tool Calling対応
 - Structured Output対応
 - Streaming対応
-- Gemini Flash系にFree Tierあり
+- Models API対応
+- Flash系にFree Tierあり
 
-OpenRouterとは独立した無料資源として重要。
+2026-08-26時点でGemini Adapterを実装済み。公式OpenAI compatibility endpointを利用し、OpenRouter baseline shapeとの差分だけAdapterで吸収する。mock tests / typecheck / buildは通過済み。実API E2Eは次に確認する。
 
 ### 3. Groq Free
 
@@ -132,8 +132,6 @@ OpenRouterと無料モデル集合は同一ではない。
 
 理論上は最大4,800 requests/day相当だが、上流Provider側の制限もあるため保証値としては扱わない。
 
-OpenRouterのように「一定額課金するとFree枠増加」という制度は現時点では確認されていない。
-
 役割:
 
 > OpenRouterとは別の大きな無料推論プール。
@@ -153,15 +151,6 @@ $5 / 30 days
 - Gateway形式
 - 多数の商用モデルを利用可能
 - OpenAI系APIとの互換性が高い
-- GPT-5.6 Lunaもモデルカタログに存在
-
-Lunaは非常に低価格なので、$5でもAgent用途ではかなりの量を処理できる可能性がある。
-
-ただし、
-
-> Free Tierの$5 creditsでLunaを常時利用可能か
-
-については実APIで最終確認する価値がある。
 
 Vercelは「無料モデル」ではなく、
 
@@ -173,14 +162,14 @@ Vercelは「無料モデル」ではなく、
 
 ### Provider固有処理を上位へ漏らさない
 
-理想:
-
 ```text
 Agent
   ↓
 Common LLM Client
   ↓
-Provider Config
+Free AI Pool
+  ↓
+Provider Adapter
   ├─ OpenRouter
   ├─ Gemini
   ├─ Groq
@@ -191,13 +180,17 @@ Provider Config
 
 Provider差分は可能な限りAdapterへ閉じ込める。
 
-共通chat request / responseの基準shapeはOpenRouter `/api/v1/chat/completions` とする。Free AI Pool固有の追加はrouting用 `provider` fieldのみを基本とし、OpenRouter互換field名はsnake_caseのまま維持する。
+共通chat request / responseの基準shapeはOpenRouter `/api/v1/chat/completions` とし、OpenRouter互換field名はsnake_caseのまま維持する。
 
-例:
+推奨例:
+
+```http
+X-Free-AI-Pool-Provider: openrouter
+Content-Type: application/json
+```
 
 ```json
 {
-  "provider": "openrouter",
   "model": "openrouter/free",
   "messages": [
     { "role": "user", "content": "hello" }
@@ -207,33 +200,27 @@ Provider差分は可能な限りAdapterへ閉じ込める。
 }
 ```
 
+OpenRouterへ送る場合、bodyのnative `provider: {...}` routing objectも保持できる。
+
 他Provider側の差異はAdapterでOpenRouter基準shapeとの間を変換する。
 
 ### OpenAI互換を積極利用する
 
-Gemini、Groq、Z.AI、Kilo、Vercelなど、OpenAI互換APIが利用できるProviderでは共通clientを再利用する。
+Gemini、Groq、Z.AI、Kilo、Vercelなど、OpenAI互換APIが利用できるProviderではその互換endpointを優先する。
 
-ただし内部設計そのものをOpenAI仕様へ完全依存させる必要はない。
+ただしProvider固有機能を共通型へ無理に押し込まない。
 
-### モデル名は設定側へ置く
+### モデル名はupstream native IDを使う
 
 例:
 
-```ts
-providers = {
-  openrouter: {
-    model: "...:free"
-  },
-  gemini: {
-    model: "gemini-..."
-  },
-  groq: {
-    model: "..."
-  }
-}
+```text
+openrouter/free
+gemini-3.7-flash
+<groq-native-model-id>
 ```
 
-無料モデルが終了・変更されてもAgent本体を修正しない。
+無料モデルが終了・変更されてもProvider Adapter本体を大きく修正しない設計を優先する。
 
 ## 将来的なチーム利用
 
@@ -257,28 +244,31 @@ docker compose up
 
 ただしDocker対応はv1の最優先事項ではない。
 
-## 次に行うこと
+## 現在の実装進捗
 
-### v1
-
-1. ✅ プロジェクトの最小構成を決める
-2. ✅ 共通LLM clientのinterfaceを決める
-3. ✅ Provider設定形式を決める
-4. ✅ OpenRouter Freeを最初に実装（mock integration + SSEまで）
-5. Geminiを追加
-6. Groqを追加
-7. Z.AIを追加
-8. Kiloを追加
-9. Vercelを追加
-
-`/v1/models` と実OpenRouter API keyでのE2E確認も次段階で行う。
+1. ✅ プロジェクトの最小構成
+2. ✅ 共通LLM interface / OpenRouter baseline型
+3. ✅ Provider registry / config
+4. ✅ OpenRouter Adapter
+5. ✅ `/v1/chat/completions`
+6. ✅ SSE streaming
+7. ✅ `/v1/models`
+8. ✅ OpenRouter実API非streaming E2E
+9. ✅ OpenRouter native `provider` fieldとのrouting衝突解消
+10. ✅ Gemini Adapter（mock/CI）
+11. ⏳ OpenRouter実API SSE / Models確認
+12. ⏳ Gemini実API E2E
+13. Groq Adapter
+14. Z.AI Adapter
+15. Kilo Adapter
+16. Vercel Adapter
 
 重要なのは、6 Providerを一気に高度に統合しないこと。
 
-まずOpenRouterで一本通し、
+まず各Providerで一本通し、
 
 ```text
-provider設定を変更するだけで別APIも動く
+upstream指定 + model IDを変更するだけで別APIも動く
 ```
 
 状態を作る。
@@ -290,7 +280,7 @@ provider設定を変更するだけで別APIも動く
 - Streaming差異
 - Reasoning設定差異
 - 各無料枠の実効rate limit
-- Vercel $5 Free creditsでLunaが実際に利用可能か
+- Vercel $5 Free creditsの実利用範囲
 - 各ProviderでAgent workloadをどれだけ処理できるか
 - 無料モデルの品質比較
 
