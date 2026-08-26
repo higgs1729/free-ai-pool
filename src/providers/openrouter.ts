@@ -1,5 +1,6 @@
 import { ProviderError } from "../core/errors.js";
 import type {
+  CommonChatChunk,
   CommonChatRequest,
   CommonChatResponse,
 } from "../core/types.js";
@@ -41,51 +42,13 @@ export class OpenRouterAdapter implements ProviderAdapter {
     request: CommonChatRequest,
     context?: ProviderRequestContext,
   ): Promise<CommonChatResponse> {
-    if (request.provider !== this.id) {
-      throw new ProviderError({
-        provider: this.id,
-        message: `OpenRouter adapter cannot handle provider '${request.provider}'`,
-        statusCode: 500,
-      });
-    }
+    this.assertProvider(request);
 
-    const { provider: _provider, stream: _stream, ...openRouterRequest } = request;
-
-    const init: RequestInit = {
-      method: "POST",
-      headers: this.buildHeaders(),
-      body: JSON.stringify({
-        ...openRouterRequest,
-        stream: false,
-      }),
-    };
-
-    if (context?.signal) {
-      init.signal = context.signal;
-    }
-
-    let response: Response;
-    try {
-      response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, init);
-    } catch (cause) {
-      throw new ProviderError({
-        provider: this.id,
-        message: "Failed to reach OpenRouter",
-        statusCode: 502,
-        cause,
-      });
-    }
-
+    const response = await this.send(request, false, context);
     const payload = await readJsonOrText(response);
 
     if (!response.ok) {
-      throw new ProviderError({
-        provider: this.id,
-        message: extractUpstreamMessage(payload) ?? `OpenRouter returned HTTP ${response.status}`,
-        statusCode: response.status,
-        upstreamStatus: response.status,
-        details: payload,
-      });
+      throw createUpstreamError(response, payload);
     }
 
     if (!isChatCompletionPayload(payload)) {
@@ -102,6 +65,116 @@ export class OpenRouterAdapter implements ProviderAdapter {
       ...payload,
       provider: this.id,
     } as CommonChatResponse;
+  }
+
+  async *stream(
+    request: CommonChatRequest,
+    context?: ProviderRequestContext,
+  ): AsyncIterable<CommonChatChunk> {
+    this.assertProvider(request);
+
+    const response = await this.send(request, true, context);
+
+    if (!response.ok) {
+      const payload = await readJsonOrText(response);
+      throw createUpstreamError(response, payload);
+    }
+
+    if (!response.body) {
+      throw new ProviderError({
+        provider: this.id,
+        message: "OpenRouter returned an empty streaming response",
+        statusCode: 502,
+        upstreamStatus: response.status,
+      });
+    }
+
+    for await (const data of readSseData(response.body)) {
+      if (data === "[DONE]") {
+        return;
+      }
+
+      let payload: unknown;
+      try {
+        payload = JSON.parse(data) as unknown;
+      } catch (cause) {
+        throw new ProviderError({
+          provider: this.id,
+          message: "OpenRouter returned invalid JSON in its SSE stream",
+          statusCode: 502,
+          upstreamStatus: response.status,
+          details: data,
+          cause,
+        });
+      }
+
+      if (isRecord(payload) && "error" in payload) {
+        throw new ProviderError({
+          provider: this.id,
+          message: extractUpstreamMessage(payload) ?? "OpenRouter streaming request failed",
+          statusCode: 502,
+          upstreamStatus: response.status,
+          details: payload,
+        });
+      }
+
+      if (!isChatCompletionPayload(payload)) {
+        throw new ProviderError({
+          provider: this.id,
+          message: "OpenRouter returned an invalid chat completion SSE chunk",
+          statusCode: 502,
+          upstreamStatus: response.status,
+          details: payload,
+        });
+      }
+
+      yield {
+        ...payload,
+        provider: this.id,
+      } as CommonChatChunk;
+    }
+  }
+
+  private assertProvider(request: CommonChatRequest): void {
+    if (request.provider !== this.id) {
+      throw new ProviderError({
+        provider: this.id,
+        message: `OpenRouter adapter cannot handle provider '${request.provider}'`,
+        statusCode: 500,
+      });
+    }
+  }
+
+  private async send(
+    request: CommonChatRequest,
+    stream: boolean,
+    context?: ProviderRequestContext,
+  ): Promise<Response> {
+    const { provider: _provider, stream: _stream, ...openRouterRequest } = request;
+
+    const init: RequestInit = {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify({
+        ...openRouterRequest,
+        stream,
+      }),
+    };
+
+    if (context?.signal) {
+      init.signal = context.signal;
+    }
+
+    try {
+      return await this.fetchImpl(`${this.baseUrl}/chat/completions`, init);
+    } catch (cause) {
+      throw new ProviderError({
+        provider: this.id,
+        message: "Failed to reach OpenRouter",
+        statusCode: 502,
+        cause,
+      });
+    }
   }
 
   private buildHeaders(): Record<string, string> {
@@ -133,6 +206,60 @@ async function readJsonOrText(response: Response): Promise<unknown> {
   } catch {
     return text;
   }
+}
+
+async function* readSseData(
+  body: ReadableStream<Uint8Array>,
+): AsyncIterable<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const data = parseSseLine(line);
+        if (data !== undefined) {
+          yield data;
+        }
+      }
+    }
+
+    buffer += decoder.decode();
+    const finalData = parseSseLine(buffer);
+    if (finalData !== undefined) {
+      yield finalData;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseSseLine(line: string): string | undefined {
+  if (!line.startsWith("data:")) {
+    return undefined;
+  }
+
+  return line.slice(5).trimStart();
+}
+
+function createUpstreamError(response: Response, payload: unknown): ProviderError {
+  return new ProviderError({
+    provider: "openrouter",
+    message: extractUpstreamMessage(payload) ?? `OpenRouter returned HTTP ${response.status}`,
+    statusCode: response.status,
+    upstreamStatus: response.status,
+    details: payload,
+  });
 }
 
 function extractUpstreamMessage(payload: unknown): string | undefined {
