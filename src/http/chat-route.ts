@@ -1,7 +1,8 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { ProviderError } from "../core/errors.js";
+import type { ProviderAdapter } from "../core/provider.js";
 import type { ProviderRegistry } from "../core/registry.js";
-import type { CommonChatRequest } from "../core/types.js";
+import type { CommonChatChunk, CommonChatRequest } from "../core/types.js";
 import { ChatCompletionRequestSchema } from "./chat-schema.js";
 
 const IMPLEMENTED_PROVIDERS = new Set(["openrouter"]);
@@ -25,18 +26,8 @@ export function registerChatCompletionRoute(
     }
 
     const chatRequest = parsed.data as CommonChatRequest;
-
-    if (chatRequest.stream === true) {
-      return reply.code(501).send({
-        error: {
-          message: "Streaming is not implemented yet",
-          type: "not_implemented_error",
-          code: "streaming_not_implemented",
-        },
-      });
-    }
-
     const adapter = registry.get(chatRequest.provider);
+
     if (!adapter) {
       const implemented = IMPLEMENTED_PROVIDERS.has(chatRequest.provider);
       return reply.code(implemented ? 503 : 501).send({
@@ -55,25 +46,44 @@ export function registerChatCompletionRoute(
     request.raw.once("aborted", abort);
 
     try {
+      if (chatRequest.stream === true) {
+        return await streamChatCompletion(
+          reply,
+          adapter,
+          chatRequest,
+          abortController.signal,
+        );
+      }
+
       const response = await adapter.chat(chatRequest, {
         signal: abortController.signal,
       });
       return reply.code(200).send(response);
     } catch (error) {
       if (error instanceof ProviderError) {
-        return reply.code(error.statusCode).send({
-          error: {
-            message: error.message,
-            type: "provider_error",
-            code: "upstream_provider_error",
-            provider: error.provider,
-            upstream_status: error.upstreamStatus,
-            details: error.details,
-          },
-        });
+        if (reply.raw.headersSent) {
+          writeStreamingError(reply, error);
+          return reply;
+        }
+
+        return sendProviderError(reply, error);
       }
 
       request.log.error({ err: error }, "Unhandled chat completion error");
+
+      if (reply.raw.headersSent) {
+        writeSseData(reply, {
+          error: {
+            message: "Internal server error",
+            type: "internal_error",
+            code: "internal_error",
+          },
+        });
+        writeSseDone(reply);
+        reply.raw.end();
+        return reply;
+      }
+
       return reply.code(500).send({
         error: {
           message: "Internal server error",
@@ -85,4 +95,89 @@ export function registerChatCompletionRoute(
       request.raw.off("aborted", abort);
     }
   });
+}
+
+async function streamChatCompletion(
+  reply: FastifyReply,
+  adapter: ProviderAdapter,
+  request: CommonChatRequest,
+  signal: AbortSignal,
+): Promise<FastifyReply> {
+  if (!adapter.stream) {
+    return reply.code(501).send({
+      error: {
+        message: `Provider '${adapter.id}' does not support streaming yet`,
+        type: "not_implemented_error",
+        code: "streaming_not_implemented",
+      },
+    });
+  }
+
+  const iterator = adapter
+    .stream(request, { signal })
+    [Symbol.asyncIterator]();
+
+  // Pull the first item before committing HTTP 200 so upstream HTTP errors can
+  // still be returned with their original status code.
+  const first = await iterator.next();
+
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+  });
+
+  if (!first.done) {
+    writeSseData(reply, first.value);
+  }
+
+  while (true) {
+    const next = await iterator.next();
+    if (next.done) {
+      break;
+    }
+    writeSseData(reply, next.value);
+  }
+
+  writeSseDone(reply);
+  reply.raw.end();
+  return reply;
+}
+
+function sendProviderError(
+  reply: FastifyReply,
+  error: ProviderError,
+): FastifyReply {
+  return reply.code(error.statusCode).send({
+    error: providerErrorBody(error),
+  });
+}
+
+function writeStreamingError(reply: FastifyReply, error: ProviderError): void {
+  writeSseData(reply, { error: providerErrorBody(error) });
+  writeSseDone(reply);
+  reply.raw.end();
+}
+
+function providerErrorBody(error: ProviderError): Record<string, unknown> {
+  return {
+    message: error.message,
+    type: "provider_error",
+    code: "upstream_provider_error",
+    provider: error.provider,
+    upstream_status: error.upstreamStatus,
+    details: error.details,
+  };
+}
+
+function writeSseData(
+  reply: FastifyReply,
+  data: CommonChatChunk | Record<string, unknown>,
+): void {
+  reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function writeSseDone(reply: FastifyReply): void {
+  reply.raw.write("data: [DONE]\n\n");
 }
