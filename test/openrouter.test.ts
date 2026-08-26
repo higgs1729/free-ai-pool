@@ -4,28 +4,32 @@ import { OpenRouterAdapter } from "../src/providers/openrouter.js";
 
 describe("OpenRouterAdapter", () => {
   it("forwards the OpenRouter-native request shape and strips pool routing metadata", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          id: "gen-1",
-          object: "chat.completion",
-          created: 1_777_000_000,
-          model: "some/free-model",
-          choices: [
-            {
-              index: 0,
-              message: { role: "assistant", content: "hello" },
-              finish_reason: "stop",
+    const fetchMock = vi.fn(
+      async (
+        _input: Parameters<typeof fetch>[0],
+        _init?: Parameters<typeof fetch>[1],
+      ) =>
+        new Response(
+          JSON.stringify({
+            id: "gen-1",
+            object: "chat.completion",
+            created: 1_777_000_000,
+            model: "some/free-model",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "hello" },
+                finish_reason: "stop",
+              },
+            ],
+            usage: {
+              prompt_tokens: 4,
+              completion_tokens: 2,
+              total_tokens: 6,
             },
-          ],
-          usage: {
-            prompt_tokens: 4,
-            completion_tokens: 2,
-            total_tokens: 6,
-          },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
     );
 
     const adapter = new OpenRouterAdapter({
