@@ -38,6 +38,8 @@ const AppConfigSchema = z.object({
   ZAI_BASE_URL: z.string().url().default("https://api.z.ai/api/paas/v4"),
 
   GROQ_API_KEY: optionalNonEmptyString,
+  GROQ_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
+
   KILO_API_KEY: optionalNonEmptyString,
   VERCEL_AI_GATEWAY_API_KEY: optionalNonEmptyString,
 });
