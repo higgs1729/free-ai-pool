@@ -201,6 +201,7 @@ Z.AIの公式OpenAPIには現時点でModels list endpointが記載されてい�
 - Free AI Pool経由で `reasoning.enabled=false` を指定すると、同じ定型応答が `completion_tokens=4` で高速に成功した ✅
 - `glm-4.5-flash` + `reasoning.enabled=false` のSSE streamingも成功。`1`〜`5` が逐次chunkで返り、最終chunkにusage、最後に `data: [DONE]` まで到達した ✅
 - `glm-4.5-flash` + `reasoning.enabled=true` でTool Calling 1ターン目も成功。`add_numbers(17,25)` に対し、`tool_calls[].function.arguments` が `{"a":17,"b":25}` のJSON stringとして返り、`reasoning_content` はFree AI Poolの `reasoning` にも正規化された ✅
+- 同じtool callの `tool_call_id` とtool結果 `42` を2ターン目に返し、最終assistant回答 `The result of 17 + 25 is 42.` まで正常に取得した。Tool Callingの完全な往復が実API E2Eで成功した ✅
 
 この実測から、thinking OFFは大幅な高速化・token削減が可能だが、`glm-4.5-flash` の通常運用では性能を優先してreasoning ONを使う。OFFは単純な定型処理で明示的に選ぶ。
 
@@ -244,7 +245,7 @@ Provider固有機能は無理に完全抽象化しない。
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. ✅ `/v1/models` を追加
 7. ✅ Gemini Adapter（実API models / 非streaming / SSE確認済み）
-8. ✅ Z.AI Adapter（実API non-streaming / reasoning control / SSE / Tool Calling 1ターン目確認済み）
+8. ✅ Z.AI Adapter（実API non-streaming / reasoning control / SSE / Tool Calling完全往復確認済み）
 9. Groq Adapter
 10. Kilo Adapter
 11. Vercel Adapter
