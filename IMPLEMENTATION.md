@@ -155,6 +155,47 @@ Gemini固有の `extra_body.google.*` 等は、必要になった時点でprovid
 
 SSEではcontentが複数chunkに分割され、Gemini固有の `extra_content.google.thought_signature` を保持したまま `finish_reason: stop` と `data: [DONE]` まで正常にstreamされた。
 
+## Z.AI
+
+OpenRouter Free / Gemini Flashで通常〜中難度帯が確保できたため、Z.AIを先に高難度タスク向けProviderとして実装する。
+
+一般API Base URL:
+
+```text
+https://api.z.ai/api/paas/v4
+```
+
+Coding Plan / trial API Base URL:
+
+```text
+https://api.z.ai/api/coding/paas/v4
+```
+
+`ZAI_BASE_URL` で切り替える。一般APIとCoding APIを同じAdapterで扱い、quota種別をFree AI Pool内部の別Providerには分割しない。
+
+現在実装済み:
+
+- Z.AI Adapter
+- `POST /v1/chat/completions`
+- SSE streaming
+- Bearer API key認証
+- OpenRouter-native `provider: {...}` はZ.AIへforwardしない
+- OpenRouter `reasoning.effort` をZ.AI `reasoning_effort` へそのまま変換
+- `reasoning.enabled` をZ.AI `thinking.type` へ変換
+- Z.AI `reasoning_content` をOpenRouter基準の `reasoning` へ正規化
+- tool callのobject型argumentsをOpenAI/OpenRouter互換のJSON stringへ正規化
+- Z.AIがnative `json_schema` を持たないため、`response_format.json_schema` は `json_object` + schema system instructionへ縮退
+- request abortのupstream伝播
+- mock tests追加
+
+Z.AIの公式OpenAPIには現時点でModels list endpointが記載されていないため、`GET /v1/models?provider=zai` は実API仕様を確認してから追加する。手書きmodel catalogは持たない。
+
+### 無料枠に関する確認事項
+
+一般API pricingでは上位GLMは従量課金で、恒常無料モデルとして `GLM-4.7-Flash` / `GLM-4.5-Flash` が掲載されている。一方、Coding側には新規ユーザー向けtrial quotaが存在する。
+
+高難度枠として上位GLMを無料利用するには、Z.AIで発行したCoding用API keyがtrial quotaを `https://api.z.ai/api/coding/paas/v4` 経由で消費できるか実E2Eで確認する。
+
 ## Layer 2 — OpenAI-compatible API
 
 Layer 1の上にOpenAI互換endpointを公開する。
@@ -193,8 +234,8 @@ Provider固有機能は無理に完全抽象化しない。
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. ✅ `/v1/models` を追加
 7. ✅ Gemini Adapter（実API models / 非streaming / SSE確認済み）
-8. Groq Adapter
-9. Z.AI Adapter
+8. ⏳ Z.AI Adapter（mock実装済み、API key / trial quota実確認待ち）
+9. Groq Adapter
 10. Kilo Adapter
 11. Vercel Adapter
 12. `free-best` を実装
