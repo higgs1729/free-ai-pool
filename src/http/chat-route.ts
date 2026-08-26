@@ -2,10 +2,23 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { ProviderError } from "../core/errors.js";
 import type { ProviderAdapter } from "../core/provider.js";
 import type { ProviderRegistry } from "../core/registry.js";
-import type { CommonChatChunk, CommonChatRequest } from "../core/types.js";
+import type {
+  CommonChatChunk,
+  CommonChatRequest,
+  ProviderId,
+} from "../core/types.js";
 import { ChatCompletionRequestSchema } from "./chat-schema.js";
 
-const IMPLEMENTED_PROVIDERS = new Set(["openrouter"]);
+const PROVIDER_IDS = new Set<ProviderId>([
+  "openrouter",
+  "gemini",
+  "groq",
+  "zai",
+  "kilo",
+  "vercel",
+]);
+const IMPLEMENTED_PROVIDERS = new Set<ProviderId>(["openrouter", "gemini"]);
+const POOL_PROVIDER_HEADER = "x-free-ai-pool-provider";
 
 export function registerChatCompletionRoute(
   app: FastifyInstance,
@@ -25,16 +38,33 @@ export function registerChatCompletionRoute(
       });
     }
 
-    const chatRequest = parsed.data as CommonChatRequest;
-    const adapter = registry.get(chatRequest.provider);
+    const routing = resolvePoolProvider(
+      request.headers[POOL_PROVIDER_HEADER],
+      parsed.data.provider,
+    );
+    if (!routing.ok) {
+      return reply.code(400).send({
+        error: {
+          message: routing.message,
+          type: "invalid_request_error",
+          code: routing.code,
+        },
+      });
+    }
+
+    const { provider: bodyProvider, ...withoutProvider } = parsed.data;
+    const chatRequest = (typeof bodyProvider === "string"
+      ? withoutProvider
+      : parsed.data) as CommonChatRequest;
+    const adapter = registry.get(routing.provider);
 
     if (!adapter) {
-      const implemented = IMPLEMENTED_PROVIDERS.has(chatRequest.provider);
+      const implemented = IMPLEMENTED_PROVIDERS.has(routing.provider);
       return reply.code(implemented ? 503 : 501).send({
         error: {
           message: implemented
-            ? `Provider '${chatRequest.provider}' is not configured`
-            : `Provider '${chatRequest.provider}' is not implemented yet`,
+            ? `Provider '${routing.provider}' is not configured`
+            : `Provider '${routing.provider}' is not implemented yet`,
           type: implemented ? "provider_configuration_error" : "not_implemented_error",
           code: implemented ? "provider_not_configured" : "provider_not_implemented",
         },
@@ -95,6 +125,60 @@ export function registerChatCompletionRoute(
       request.raw.off("aborted", abort);
     }
   });
+}
+
+function resolvePoolProvider(
+  headerValue: string | string[] | undefined,
+  bodyProvider: ProviderId | Record<string, unknown> | undefined,
+):
+  | { ok: true; provider: ProviderId }
+  | { ok: false; message: string; code: string } {
+  if (Array.isArray(headerValue)) {
+    return {
+      ok: false,
+      message: "X-Free-AI-Pool-Provider must contain a single provider id",
+      code: "invalid_provider",
+    };
+  }
+
+  let headerProvider: ProviderId | undefined;
+  if (headerValue !== undefined) {
+    if (!PROVIDER_IDS.has(headerValue as ProviderId)) {
+      return {
+        ok: false,
+        message: `Unknown provider '${headerValue}'`,
+        code: "invalid_provider",
+      };
+    }
+    headerProvider = headerValue as ProviderId;
+  }
+
+  const legacyBodyProvider =
+    typeof bodyProvider === "string" ? bodyProvider : undefined;
+
+  if (
+    headerProvider !== undefined &&
+    legacyBodyProvider !== undefined &&
+    headerProvider !== legacyBodyProvider
+  ) {
+    return {
+      ok: false,
+      message: "Provider header and legacy body provider disagree",
+      code: "provider_conflict",
+    };
+  }
+
+  const provider = headerProvider ?? legacyBodyProvider;
+  if (!provider) {
+    return {
+      ok: false,
+      message:
+        "Select an upstream with X-Free-AI-Pool-Provider (legacy string body provider is also accepted)",
+      code: "provider_required",
+    };
+  }
+
+  return { ok: true, provider };
 }
 
 async function streamChatCompletion(
