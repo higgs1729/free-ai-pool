@@ -4,15 +4,13 @@
 
 ## 目的
 
-複数の無料・低コストLLM APIを、OpenAI互換クライアントから共通形式で利用できるようにする。
+複数の無料・低コストLLM APIを、OpenAI互換クライアントから共通形式で利用できる軽量Gatewayにする。
 
-最初の利用先は Hermes Agent / n8n LLM Agent。将来は VS Code / Orca などからも利用する。
+最初の利用先は Hermes Agent / n8n LLM Agent。将来は VS Code / Orca 等からも利用する。
 
-## Layer 1
+## v1の境界
 
-> OpenRouterに近い共通AIリクエスト形式を受け取り、リクエストで明示された6つのupstreamのいずれかへ、Provider Adapterを介して透過的に転送し、応答を共通形式へ正規化する。Providerの自動選択は行わない。
-
-対象upstream:
+対象upstreamは6つ。
 
 - OpenRouter
 - Gemini
@@ -21,102 +19,109 @@
 - Kilo Gateway
 - Vercel AI Gateway
 
-### 重要な設計判断
+Free AI Pool自身は **Provider間の自動選択・自動fallbackをしない**。upstreamはリクエストごとに明示する。
 
-- 6 Providerは統合せず、それぞれ独立upstreamとして扱う。
-- Gemini / Groq等をOpenRouter BYOKへまとめない。
-- Free AI Pool側はProviderを自動選択しない。
-- Provider間の自動fallbackもv1では行わない。
-- upstream内部のroutingはそのupstreamへ任せる。
-- OpenRouterを基準実装とし、他ProviderはOpenRouterとの差分をAdapterで吸収する。
-- model IDは可能な限りupstream native IDをそのまま使う。
-- 共通chat型のfield名・shapeはOpenRouter `/api/v1/chat/completions` を基準にする。
-- `tool_calls`, `tool_call_id`, `response_format`, `json_schema`, `reasoning_details`, `max_tokens`, `prompt_tokens` 等はOpenRouter nativeのsnake_caseを維持する。
-- `GET /v1/models` は引数なしではOpenRouter Models APIを基準とし、他Providerを明示する場合のみ `?provider=...` をFree AI Pool拡張として使う。
-
-### Provider選択のtransport
-
-OpenRouter自身がchat requestのトップレベル `provider: {...}` を内部routing設定として利用するため、Free AI Poolのupstream選択で同名fieldを占有しない。
-
-推奨:
+推奨transport:
 
 ```http
 X-Free-AI-Pool-Provider: openrouter
 ```
 
-bodyはOpenRouter-native shapeを維持する。
+後方互換として文字列body `provider: "openrouter"` も受理する。
 
-```json
-{
-  "model": "openrouter/free",
-  "messages": [
-    { "role": "user", "content": "hello" }
-  ]
-}
+OpenRouter自身がトップレベル `provider: {...}` をnative routing設定として使うため、headerでpool upstreamを指定した場合のobject型 `provider` はOpenRouterへそのままforwardする。他Providerへはforwardしない。
+
+## 共通API
+
+```text
+GET  /v1/models
+POST /v1/chat/completions
 ```
 
-後方互換のため、従来の文字列body routingも当面受理する。
+共通chat shapeはOpenRouter `/api/v1/chat/completions` を基準とし、snake_caseを維持する。
 
-```json
-{
-  "provider": "openrouter",
-  "model": "openrouter/free",
-  "messages": [
-    { "role": "user", "content": "hello" }
-  ]
-}
-```
+主な対応field:
 
-この場合の文字列 `provider` はAdapterへ渡す前に除去する。
+- `model`
+- `messages`
+- `stream`
+- `temperature`, `top_p`, `max_tokens`, `stop`, `seed`
+- `frequency_penalty`, `presence_penalty`
+- `tools`, `tool_choice`, `parallel_tool_calls`
+- `response_format` / `json_schema`
+- `reasoning`, `reasoning_details`, `include_reasoning`
+- vision `image_url`
+- `finish_reason`, `usage`
 
-一方、headerでpool upstreamを選択してbodyにOpenRouter-native `provider: {...}` を渡した場合、そのobjectはそのままOpenRouterへforwardする。
+Provider固有機能は無理に共通型へ押し込まず、OpenRouter baselineとの差分だけ各Adapterで吸収する。
 
-## OpenRouter Free
+## 実装済み共通基盤
 
-`openrouter/free` はOpenRouter自身が現在利用可能な無料モデルへroutingするため、その内部選択はOpenRouterへ任せる。
-
-Free AI Pool側のProvider自動選択とは別物なので、Layer 1の原則には反しない。
-
-### 現在の実装状況
-
-`feat/bootstrap` / PR #1 で以下まで実装済み。
-
-- TypeScript / Fastifyの最小サービス
-- OpenRouter基準の共通chat request / response型
+- Node.js 24 / TypeScript / Fastify / Zod / Vitest
+- strict TypeScript
 - Provider Adapter interface / registry
-- OpenRouter Adapter
-- `POST /v1/chat/completions`
-- `openrouter/free` の非streaming pass-through
-- SSE streaming pass-through
-- Tool Calling request shape
-- Structured Output (`response_format.json_schema`) request shape
-- Reasoning (`reasoning`, `reasoning_details`) request / response shape
-- visionの `image_url` input shape
-- `GET /v1/models`
-- OpenRouter Models API metadata / query parameter pass-through
+- Provider request abortのupstream伝播
 - upstream error normalization
-- request abortのupstream伝播
-- `X-Free-AI-Pool-Provider` routing
-- OpenRouter-native `provider: {...}` routing objectのpass-through
-- CI: typecheck / tests / build
+- SSE pass-through + `data: [DONE]`
+- `/v1/models?provider=...`
+- `.env` のNode標準読み込み
+- GitHub Actions: install / typecheck / test / build
 
-`/v1/models` ではOpenRouterのmodel metadataを維持し、各modelへFree AI Poolの `provider` fieldのみ追加する。`supported_parameters`, `output_modalities`, `sort` 等のOpenRouter query parameterはupstreamへ透過する。
+## Provider status
 
-### 実API E2E
+### OpenRouter
 
-2026-08-26にローカル環境から実OpenRouter APIで主要3経路を確認済み。
+Base URL:
 
-- 非streaming chat completion ✅
-- SSE streaming ✅
-- `GET /v1/models?provider=openrouter` ✅
+```text
+https://openrouter.ai/api/v1
+```
 
-非streaming確認時は `openrouter/free` が `minimax/minimax-m2.7:free` へ解決され、usageの `cost=0` まで正常に返った。
+実装:
 
-SSE確認時は `openrouter/free` が `cohere/north-mini-code:free` へ解決され、reasoning / content / usage / `data: [DONE]` まで正常にstreamされた。
+- chat completion
+- SSE
+- Models API query/metadata pass-through
+- Tool Calling / Structured Output / Reasoning / vision
+- native `provider: {...}` routing保持
+- optional `HTTP-Referer`, `X-Title`
+- `openrouter/free`
+- Free AI Pool仮想モデル `free-best`
 
-## Gemini
+実API E2E済み:
 
-Gemini Developer APIの公式OpenAI compatibility endpointを利用する。
+- non-streaming ✅
+- SSE ✅
+- `/v1/models` ✅
+
+実測では `openrouter/free` が無料モデルへ解決され、`cost=0`、reasoning/content/usage/[DONE] まで確認済み。
+
+### `free-best`
+
+`free-best` は **OpenRouter Adapter内部だけの仮想model ID**。Provider間の自動routingではない。
+
+```json
+{
+  "model": "free-best",
+  "messages": [{"role":"user","content":"..."}]
+}
+```
+
+選択手順:
+
+1. OpenRouter Models APIを `sort=intelligence-high-to-low` で取得
+2. requestから必要capabilityを抽出
+3. 実model IDが `:free`
+4. prompt/completion価格が0
+5. expiration済みでない
+6. context長が不足しない
+7. tools / structured output / reasoning / vision等の必要capabilityを満たす
+8. intelligence順で最初のeligible modelを採用
+9. capability条件ごとに5分cache
+
+eligible modelが0件なら暗黙fallbackせず503を返す。
+
+### Gemini
 
 Base URL:
 
@@ -124,157 +129,173 @@ Base URL:
 https://generativelanguage.googleapis.com/v1beta/openai
 ```
 
-現在実装済み:
+実装:
 
-- Gemini Adapter
-- `POST /v1/chat/completions`
-- SSE streaming
-- Tool Calling / Structured OutputのOpenAI-compatible shape pass-through
-- vision `image_url` shape
-- `GET /v1/models`
-- Bearer API key認証
-- OpenRouter baseline `reasoning.effort` -> Gemini `reasoning_effort` 変換
-  - `minimal/low/medium/high/none` は同値
-  - OpenRouter側の `max/xhigh` はGemini側では `high` へ丸める
-- OpenRouter固有のnative `provider: {...}` routing objectはGeminiへはforwardしない
-- mock tests / typecheck / build成功
+- chat / SSE / Models
+- Tool Calling / Structured Output / vision
+- Bearer API key
+- `reasoning.effort` 差分吸収
+- Gemini固有response fieldを保持
 
-Gemini固有の `extra_body.google.*` 等は、必要になった時点でprovider-specific pass-throughとして扱う。Provider固有機能を共通型へ無理に押し込まない。
+実API E2E済み:
 
-### 実API E2E
+- Models ✅
+- non-streaming ✅
+- SSE ✅
 
-2026-08-26にGoogle AI Studioで発行したFree Tier API keyを用いて主要3経路を確認済み。
+`gemini-3.6-flash` で成功。Models APIには載るが新規ユーザーでは使えない旧modelの404もupstream details付きで正規化できた。
 
-- `GET /v1/models?provider=gemini` ✅
-- 非streaming chat completion ✅
-- SSE streaming ✅
+### Z.AI
 
-`gemini-2.5-flash` はModels APIには列挙されたが、新規ユーザー向けchat completionではupstream 404となり、Gemini側が `gemini-3.6-flash` への移行を案内した。Free AI Poolはこのupstream status / detailsを正規化して返却できた。
-
-`gemini-3.6-flash` では正常に `chat.completion` が返り、usageも取得できた。
-
-SSEではcontentが複数chunkに分割され、Gemini固有の `extra_content.google.thought_signature` を保持したまま `finish_reason: stop` と `data: [DONE]` まで正常にstreamされた。
-
-## Z.AI
-
-Z.AIの無料Flashは最上位モデルの代替としてではなく、**無料で長時間回しやすい単純・大量タスク実行役**として使う。OpenRouter Free / Geminiが通常以上のタスクを担当し、Z.AI Flashには分類、変換、短い抽出、定型応答など比較的軽い処理を寄せる。
-
-ただし `glm-4.5-flash` は性能を優先して **reasoning ONを通常運用**とする。thinking OFFは、速度・token効率を最優先する極めて単純で決定的な処理に明示的に使える最適化手段として残す。
-
-一般API Base URL:
+General Base URL:
 
 ```text
 https://api.z.ai/api/paas/v4
 ```
 
-Coding Plan / trial API Base URL:
+Coding Plan / trial:
 
 ```text
 https://api.z.ai/api/coding/paas/v4
 ```
 
-`ZAI_BASE_URL` で切り替える。一般APIとCoding APIを同じAdapterで扱い、quota種別をFree AI Pool内部の別Providerには分割しない。
+実装:
 
-現在実装済み:
+- chat / SSE
+- Bearer API key
+- `reasoning.effort` -> `reasoning_effort`
+- `reasoning.enabled` -> `thinking.type`
+- `reasoning_content` -> baseline `reasoning`
+- tool argumentsをJSON stringへ正規化
+- `json_schema` を `json_object + schema system instruction` へ縮退
+- upstream error normalization
 
-- Z.AI Adapter
-- `POST /v1/chat/completions`
-- SSE streaming
-- Bearer API key認証
-- OpenRouter-native `provider: {...}` はZ.AIへforwardしない
-- OpenRouter `reasoning.effort` をZ.AI `reasoning_effort` へそのまま変換
-- `reasoning.enabled` をZ.AI `thinking.type` へ変換
-- Z.AI `reasoning_content` をOpenRouter基準の `reasoning` へ正規化
-- tool callのobject型argumentsをOpenAI/OpenRouter互換のJSON stringへ正規化
-- Z.AIがnative `json_schema` を持たないため、`response_format.json_schema` は `json_object` + schema system instructionへ縮退
-- request abortのupstream伝播
-- mock tests追加
+Models listは公式仕様を確認できていないため手書きcatalogを持たず、`listModels` は未実装。
 
-Z.AIの公式OpenAPIには現時点でModels list endpointが記載されていないため、`GET /v1/models?provider=zai` は実API仕様を確認してから追加する。手書きmodel catalogは持たない。
+実API E2E済み:
 
-### 実API E2E
+- non-streaming ✅
+- reasoning ON/OFF ✅
+- SSE ✅
+- Tool Calling完全往復 ✅
+- Structured Output縮退経路 ✅
+- overload 429 normalization ✅
 
-2026-08-26に一般API + 無料Flashで実確認した。
+`glm-4.5-flash` は通常 **reasoning ON** を基本運用とする。OFFは非常に単純な処理の速度/token最適化用。
 
-- `glm-4.7-flash` は最初のFree AI Pool経由リクエストで upstream `HTTP 429 / code 1305`（temporarily overloaded）を返した。Free AI Pool側のerror normalizationは正常に動作した。
-- `glm-4.5-flash` をZ.AIへ直接、thinkingデフォルトで送ると成功したが、接続 `0.086s` に対して最初の応答まで `27.353s`。`zai-ok` を返すだけで `completion_tokens=283` の大半を `reasoning_content` に消費した。
-- Free AI Pool経由で `reasoning.enabled=false` を指定すると、同じ定型応答が `completion_tokens=4` で高速に成功した ✅
-- `glm-4.5-flash` + `reasoning.enabled=false` のSSE streamingも成功。`1`〜`5` が逐次chunkで返り、最終chunkにusage、最後に `data: [DONE]` まで到達した ✅
-- `glm-4.5-flash` + `reasoning.enabled=true` でTool Calling 1ターン目も成功。`add_numbers(17,25)` に対し、`tool_calls[].function.arguments` が `{"a":17,"b":25}` のJSON stringとして返り、`reasoning_content` はFree AI Poolの `reasoning` にも正規化された ✅
-- 同じtool callの `tool_call_id` とtool結果 `42` を2ターン目に返し、最終assistant回答 `The result of 17 + 25 is 42.` まで正常に取得した。Tool Callingの完全な往復が実API E2Eで成功した ✅
-- `response_format.type=json_schema` をFree AI Poolへ送り、AdapterがZ.AI向け `json_object` + schema system instructionへ縮退する経路も実APIで成功した。`name:string`, `score:integer`, `tags:string[]` の期待schemaどおりのJSONを返し、`ConvertFrom-Json` でも正常にparseできた ✅
+実測では単純応答が reasoning ON で completion 283 tokens / 約27秒、OFFで4 tokensまで低下した。
 
-この実測から、thinking OFFは大幅な高速化・token削減が可能だが、`glm-4.5-flash` の通常運用では性能を優先してreasoning ONを使う。OFFは単純な定型処理で明示的に選ぶ。
+### Groq
 
-恒常無料モデルとして `GLM-4.7-Flash` / `GLM-4.5-Flash` を候補とするが、混雑や一時的なoverloadは起こり得るため、無制限相当の無料枠と瞬間的な可用性は別問題として扱う。
-
-## Layer 2 — OpenAI-compatible API
-
-Layer 1の上にOpenAI互換endpointを公開する。
-
-MVP:
+Base URL:
 
 ```text
-GET  /v1/models
-POST /v1/chat/completions
+https://api.groq.com/openai/v1
 ```
 
-最低限対応するもの:
+実装:
 
-- model
-- messages
-- streaming / SSE
-- tool calling
-- tool_choice
-- structured output
-- reasoning系パラメータは共通化可能な範囲で対応
-- temperature
-- max_tokens系
-- finish_reason
-- usage
-- error normalization
-- vision入力は対応可能なら含める
+- chat / SSE / Models
+- Bearer API key
+- Tool Calling / Structured Output
+- OpenRouter native `provider` を除去
+- Groq非対応 `messages[].name` を除去
+- GPT-OSS reasoning: `low/medium/high`
+- Qwen reasoning: `none/default`
+- OpenRouterの `max/xhigh/minimal` を安全なGroq値へ丸める
 
-Provider固有機能は無理に完全抽象化しない。
+mock tests / typecheck / build ✅
 
-## 実装順
+実API E2EはAPI keyを設定したローカル環境で未確認。
 
-1. ✅ 共通request / response型を定義
-2. ✅ OpenRouter Adapterを実装
-3. ✅ `openrouter/free` で一本通す（実API非streaming / SSE / models確認済み）
-4. ✅ `/v1/chat/completions` の最小版を公開
-5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
-6. ✅ `/v1/models` を追加
-7. ✅ Gemini Adapter（実API models / 非streaming / SSE確認済み）
-8. ✅ Z.AI Adapter（実API non-streaming / reasoning control / SSE / Tool Calling完全往復 / Structured Output確認済み）
-9. Groq Adapter
-10. Kilo Adapter
-11. Vercel Adapter
-12. `free-best` を実装
-13. Hermes / n8nからE2E確認
+### Kilo Gateway
 
-ここまでを **「LLM Agent用途のOpenAI互換API MVP完成」** とする。
+Base URL:
+
+```text
+https://api.kilo.ai/api/gateway
+```
+
+実装:
+
+- chat / SSE / Models
+- Free modelsはAPI keyなしでも利用できるため、Kilo Adapterは常時registryへ登録
+- key設定時はBearer auth
+- Tool Calling / `response_format` 等のOpenAI-compatible fieldを透過
+- OpenRouter native `provider`, `reasoning`, `include_reasoning` はKiloへ送らない
+- message内のreasoning traceも送らない
+- `developer` roleは互換性のため `system` へ変換
+
+候補model:
+
+- `kilo-auto/free`
+- `openrouter/free`
+- Kilo catalog内の各 `:free` model
+
+mock tests / typecheck / build ✅
+
+匿名free実API E2Eはローカルから未確認。
+
+### Vercel AI Gateway
+
+Base URL:
+
+```text
+https://ai-gateway.vercel.sh/v1
+```
+
+実装:
+
+- chat / SSE / Models
+- Bearer API key
+- Tool Calling / Structured Output
+- baseline `reasoning` をそのまま透過
+- `providerOptions` 等Vercel固有top-level extensionはpassthrough
+- OpenRouter native `provider` objectだけ除去
+
+mock tests / typecheck / build ✅
+
+実API E2EはAPI keyを設定したローカル環境で未確認。
+
+## CI状態
+
+2026-08-26、6 Provider + `free-best` を含む最新functional commitで以下すべて成功。
+
+```text
+Install dependencies ✅
+Typecheck            ✅
+Test                 ✅
+Build                ✅
+```
+
+## v1実装順
+
+1. ✅ Common request / response type
+2. ✅ OpenRouter Adapter
+3. ✅ OpenRouter real E2E
+4. ✅ `/v1/chat/completions`
+5. ✅ SSE / tools / structured output / reasoning baseline
+6. ✅ `/v1/models`
+7. ✅ Gemini Adapter + real E2E
+8. ✅ Z.AI Adapter + real E2E
+9. ✅ Groq Adapter + mock/CI
+10. ✅ Kilo Adapter + mock/CI
+11. ✅ Vercel Adapter + mock/CI
+12. ✅ `free-best`
+13. ⏳ Groq / Kilo / Vercel real API E2E
+14. ⏳ Hermes Agent / n8nからの最終E2E
+
+コード実装としてのLayer 1 / Layer 2 MVPは完成。残りは外部credential/clientを使う実接続確認。
 
 ## v1完成条件に含めないもの
-
-以下はOpenRouter側に存在する機能もあるが、Agent Codingの最初の価値には不要なので後回しにする。
 
 - Embeddings
 - Image generation
 - Audio / TTS / transcription
 - Files API
 - Batch API
+- Provider間自動routing
+- Provider間自動fallback
+- 高度なquota scheduler
 
-必要になった時点でLayer 2へ追加する。
-
-## 非目標
-
-v1では以下を実装しない。
-
-- 6 Provider間の自動モデル選択
-- Provider間の自動fallback
-- quota最適化Router
-- タスク分類Router
-- 全Provider機能の完全な共通化
-
-必要なら将来、Layer 1の上に別のAuto Selectorを追加する。
+必要になった時点で追加する。
