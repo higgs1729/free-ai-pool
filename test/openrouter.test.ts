@@ -3,7 +3,7 @@ import { ProviderError } from "../src/core/errors.js";
 import { OpenRouterAdapter } from "../src/providers/openrouter.js";
 
 describe("OpenRouterAdapter", () => {
-  it("forwards the OpenRouter-native request shape and strips pool routing metadata", async () => {
+  it("forwards the OpenRouter-native request shape", async () => {
     const fetchMock = vi.fn(
       async (
         _input: Parameters<typeof fetch>[0],
@@ -38,10 +38,10 @@ describe("OpenRouterAdapter", () => {
     });
 
     const response = await adapter.chat({
-      provider: "openrouter",
       model: "openrouter/free",
       messages: [{ role: "user", content: "hello" }],
       max_tokens: 128,
+      provider: { allow_fallbacks: false },
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -67,7 +67,7 @@ describe("OpenRouterAdapter", () => {
     });
 
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    expect(body.provider).toBeUndefined();
+    expect(body.provider).toEqual({ allow_fallbacks: false });
     expect(body.model).toBe("openrouter/free");
     expect(body.max_tokens).toBe(128);
     expect(body.stream).toBe(false);
@@ -109,7 +109,6 @@ describe("OpenRouterAdapter", () => {
 
     const error = await adapter
       .chat({
-        provider: "openrouter",
         model: "openrouter/free",
         messages: [{ role: "user", content: "hello" }],
       })
