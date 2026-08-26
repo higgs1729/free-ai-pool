@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
+import { loadConfig } from "../src/config.js";
 
 let app: FastifyInstance | undefined;
 
@@ -11,11 +12,7 @@ afterEach(async () => {
 
 describe("health endpoint", () => {
   it("returns service health", async () => {
-    app = buildApp({
-      HOST: "127.0.0.1",
-      PORT: 8787,
-      LOG_LEVEL: "silent",
-    });
+    app = buildApp(loadConfig({ LOG_LEVEL: "silent" }));
 
     const response = await app.inject({
       method: "GET",
