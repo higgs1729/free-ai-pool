@@ -6,6 +6,7 @@ import {
   type ProviderRegistry,
 } from "./core/registry.js";
 import { registerChatCompletionRoute } from "./http/chat-route.js";
+import { registerModelsRoute } from "./http/models-route.js";
 
 export function buildApp(
   config: AppConfig = loadConfig(),
@@ -21,6 +22,7 @@ export function buildApp(
   }));
 
   registerChatCompletionRoute(app, registry);
+  registerModelsRoute(app, registry);
 
   return app;
 }
