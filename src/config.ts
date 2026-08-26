@@ -33,8 +33,11 @@ const AppConfigSchema = z.object({
     .string()
     .url()
     .default("https://generativelanguage.googleapis.com/v1beta/openai"),
-  GROQ_API_KEY: optionalNonEmptyString,
+
   ZAI_API_KEY: optionalNonEmptyString,
+  ZAI_BASE_URL: z.string().url().default("https://api.z.ai/api/paas/v4"),
+
+  GROQ_API_KEY: optionalNonEmptyString,
   KILO_API_KEY: optionalNonEmptyString,
   VERCEL_AI_GATEWAY_API_KEY: optionalNonEmptyString,
 });
