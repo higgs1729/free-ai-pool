@@ -12,10 +12,10 @@ type FetchLike = typeof globalThis.fetch;
 
 export interface OpenRouterAdapterOptions {
   apiKey: string;
-  baseUrl?: string;
-  httpReferer?: string;
-  title?: string;
-  fetchImpl?: FetchLike;
+  baseUrl?: string | undefined;
+  httpReferer?: string | undefined;
+  title?: string | undefined;
+  fetchImpl?: FetchLike | undefined;
 }
 
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
@@ -25,8 +25,8 @@ export class OpenRouterAdapter implements ProviderAdapter {
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
-  private readonly httpReferer?: string;
-  private readonly title?: string;
+  private readonly httpReferer: string | undefined;
+  private readonly title: string | undefined;
   private readonly fetchImpl: FetchLike;
 
   constructor(options: OpenRouterAdapterOptions) {
@@ -51,17 +51,22 @@ export class OpenRouterAdapter implements ProviderAdapter {
 
     const { provider: _provider, stream: _stream, ...openRouterRequest } = request;
 
+    const init: RequestInit = {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify({
+        ...openRouterRequest,
+        stream: false,
+      }),
+    };
+
+    if (context?.signal) {
+      init.signal = context.signal;
+    }
+
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify({
-          ...openRouterRequest,
-          stream: false,
-        }),
-        signal: context?.signal,
-      });
+      response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, init);
     } catch (cause) {
       throw new ProviderError({
         provider: this.id,
