@@ -104,38 +104,15 @@ Free AI Pool側のProvider自動選択とは別物なので、Layer 1の原則�
 
 ### 実API E2E
 
-2026-08-26にローカル環境から実OpenRouter APIで非streaming E2E成功。
+2026-08-26にローカル環境から実OpenRouter APIで主要3経路を確認済み。
 
-経路:
+- 非streaming chat completion ✅
+- SSE streaming ✅
+- `GET /v1/models?provider=openrouter` ✅
 
-```text
-PowerShell
-  -> Free AI Pool localhost
-  -> OpenRouter Adapter
-  -> OpenRouter
-  -> openrouter/free
-  -> resolved free model
-```
+非streaming確認時は `openrouter/free` が `minimax/minimax-m2.7:free` へ解決され、usageの `cost=0` まで正常に返った。
 
-確認時は `openrouter/free` が `minimax/minimax-m2.7:free` へ解決され、usageの `cost=0` まで正常に返った。
-
-実OpenRouterでのSSEとModels endpoint確認は継続する。
-
-### 将来候補: `free-best`
-
-OpenRouter公式Models APIから無料モデル一覧を機械取得できる。
-
-将来的に仮想モデル `free-best` を追加し、以下のような条件で現在の有力無料モデルを自動導出する案を残す。
-
-- `:free` variant
-- input/output pricingが0
-- 必要capabilityを満たす
-- expirationしていない
-- intelligence順等で選択
-
-手書きの無料モデル台帳は持たない。
-
-`free-best` はOpenRouter Adapter内の補助機能として扱い、6 Provider間の自動routingにはしない。
+SSE確認時は `openrouter/free` が `cohere/north-mini-code:free` へ解決され、reasoning / content / usage / `data: [DONE]` まで正常にstreamされた。
 
 ## Gemini
 
@@ -164,7 +141,18 @@ https://generativelanguage.googleapis.com/v1beta/openai
 
 Gemini固有の `extra_body.google.*` 等は、必要になった時点でprovider-specific pass-throughとして扱う。Provider固有機能を共通型へ無理に押し込まない。
 
-実Gemini API keyでのE2Eは未確認。
+### 実API E2E
+
+2026-08-26にGoogle AI Studioで発行したFree Tier API keyを用いて以下を確認済み。
+
+- `GET /v1/models?provider=gemini` ✅
+- 非streaming chat completion ✅
+
+`gemini-2.5-flash` はModels APIには列挙されたが、新規ユーザー向けchat completionではupstream 404となり、Gemini側が `gemini-3.6-flash` への移行を案内した。Free AI Poolはこのupstream status / detailsを正規化して返却できた。
+
+`gemini-3.6-flash` では正常に `chat.completion` が返り、usageも取得できた。
+
+Gemini SSE streamingの実API E2Eは未確認。
 
 ## Layer 2 — OpenAI-compatible API
 
@@ -199,11 +187,11 @@ Provider固有機能は無理に完全抽象化しない。
 
 1. ✅ 共通request / response型を定義
 2. ✅ OpenRouter Adapterを実装
-3. ✅ `openrouter/free` で一本通す（実API非streaming E2Eまで確認済み）
+3. ✅ `openrouter/free` で一本通す（実API非streaming / SSE / models確認済み）
 4. ✅ `/v1/chat/completions` の最小版を公開
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. ✅ `/v1/models` を追加
-7. ✅ Gemini Adapter（mock/CI。実API E2E待ち）
+7. ✅ Gemini Adapter（実API models / 非streaming確認済み、SSE実確認待ち）
 8. Groq Adapter
 9. Z.AI Adapter
 10. Kilo Adapter
