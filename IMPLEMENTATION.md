@@ -25,35 +25,53 @@
 
 - 6 Providerは統合せず、それぞれ独立upstreamとして扱う。
 - Gemini / Groq等をOpenRouter BYOKへまとめない。
-- リクエスト側が `provider` と `model` を明示する。
 - Free AI Pool側はProviderを自動選択しない。
 - Provider間の自動fallbackもv1では行わない。
 - upstream内部のroutingはそのupstreamへ任せる。
 - OpenRouterを基準実装とし、他ProviderはOpenRouterとの差分をAdapterで吸収する。
 - model IDは可能な限りupstream native IDをそのまま使う。
-- 共通chat型のfield名・shapeはOpenRouter `/api/v1/chat/completions` を基準にし、`provider` のみFree AI Pool固有のrouting fieldとして追加する。
+- 共通chat型のfield名・shapeはOpenRouter `/api/v1/chat/completions` を基準にする。
 - `tool_calls`, `tool_call_id`, `response_format`, `json_schema`, `reasoning_details`, `max_tokens`, `prompt_tokens` 等はOpenRouter nativeのsnake_caseを維持する。
 - `GET /v1/models` は引数なしではOpenRouter Models APIを基準とし、他Providerを明示する場合のみ `?provider=...` をFree AI Pool拡張として使う。
 
-例:
+### Provider選択のtransport
+
+OpenRouter自身がchat requestのトップレベル `provider: {...}` を内部routing設定として利用するため、Free AI Poolのupstream選択で同名fieldを占有しない。
+
+推奨:
+
+```http
+X-Free-AI-Pool-Provider: openrouter
+```
+
+bodyはOpenRouter-native shapeを維持する。
+
+```json
+{
+  "model": "openrouter/free",
+  "messages": [
+    { "role": "user", "content": "hello" }
+  ]
+}
+```
+
+後方互換のため、従来の文字列body routingも当面受理する。
 
 ```json
 {
   "provider": "openrouter",
-  "model": "openrouter/free"
+  "model": "openrouter/free",
+  "messages": [
+    { "role": "user", "content": "hello" }
+  ]
 }
 ```
 
-```json
-{
-  "provider": "gemini",
-  "model": "<gemini-model-id>"
-}
-```
+この場合の文字列 `provider` はAdapterへ渡す前に除去する。
+
+一方、headerでpool upstreamを選択してbodyにOpenRouter-native `provider: {...}` を渡した場合、そのobjectはそのままOpenRouterへforwardする。
 
 ## OpenRouter Free
-
-最初に実装する。
 
 `openrouter/free` はOpenRouter自身が現在利用可能な無料モデルへroutingするため、その内部選択はOpenRouterへ任せる。
 
@@ -78,13 +96,30 @@ Free AI Pool側のProvider自動選択とは別物なので、Layer 1の原則�
 - OpenRouter Models API metadata / query parameter pass-through
 - upstream error normalization
 - request abortのupstream伝播
+- `X-Free-AI-Pool-Provider` routing
+- OpenRouter-native `provider: {...}` routing objectのpass-through
 - CI: typecheck / tests / build
-
-OpenRouter AdapterではFree AI Pool固有の `provider` だけを除去し、OpenRouter互換fieldは原則そのままupstreamへ渡す。
 
 `/v1/models` ではOpenRouterのmodel metadataを維持し、各modelへFree AI Poolの `provider` fieldのみ追加する。`supported_parameters`, `output_modalities`, `sort` 等のOpenRouter query parameterはupstreamへ透過する。
 
-実OpenRouter API keyを用いたE2Eはローカル/secret設定後に確認する。
+### 実API E2E
+
+2026-08-26にローカル環境から実OpenRouter APIで非streaming E2E成功。
+
+経路:
+
+```text
+PowerShell
+  -> Free AI Pool localhost
+  -> OpenRouter Adapter
+  -> OpenRouter
+  -> openrouter/free
+  -> resolved free model
+```
+
+確認時は `openrouter/free` が `minimax/minimax-m2.7:free` へ解決され、usageの `cost=0` まで正常に返った。
+
+実OpenRouterでのSSEとModels endpoint確認は継続する。
 
 ### 将来候補: `free-best`
 
@@ -101,6 +136,35 @@ OpenRouter公式Models APIから無料モデル一覧を機械取得できる。
 手書きの無料モデル台帳は持たない。
 
 `free-best` はOpenRouter Adapter内の補助機能として扱い、6 Provider間の自動routingにはしない。
+
+## Gemini
+
+Gemini Developer APIの公式OpenAI compatibility endpointを利用する。
+
+Base URL:
+
+```text
+https://generativelanguage.googleapis.com/v1beta/openai
+```
+
+現在実装済み:
+
+- Gemini Adapter
+- `POST /v1/chat/completions`
+- SSE streaming
+- Tool Calling / Structured OutputのOpenAI-compatible shape pass-through
+- vision `image_url` shape
+- `GET /v1/models`
+- Bearer API key認証
+- OpenRouter baseline `reasoning.effort` -> Gemini `reasoning_effort` 変換
+  - `minimal/low/medium/high/none` は同値
+  - OpenRouter側の `max/xhigh` はGemini側では `high` へ丸める
+- OpenRouter固有のnative `provider: {...}` routing objectはGeminiへはforwardしない
+- mock tests / typecheck / build成功
+
+Gemini固有の `extra_body.google.*` 等は、必要になった時点でprovider-specific pass-throughとして扱う。Provider固有機能を共通型へ無理に押し込まない。
+
+実Gemini API keyでのE2Eは未確認。
 
 ## Layer 2 — OpenAI-compatible API
 
@@ -135,11 +199,11 @@ Provider固有機能は無理に完全抽象化しない。
 
 1. ✅ 共通request / response型を定義
 2. ✅ OpenRouter Adapterを実装
-3. ✅ `openrouter/free` で一本通す（mock integration testまで。実API E2Eはkey設定後）
+3. ✅ `openrouter/free` で一本通す（実API非streaming E2Eまで確認済み）
 4. ✅ `/v1/chat/completions` の最小版を公開
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. ✅ `/v1/models` を追加
-7. Gemini Adapter
+7. ✅ Gemini Adapter（mock/CI。実API E2E待ち）
 8. Groq Adapter
 9. Z.AI Adapter
 10. Kilo Adapter
