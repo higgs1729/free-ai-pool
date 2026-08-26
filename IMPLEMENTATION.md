@@ -157,7 +157,9 @@ SSEではcontentが複数chunkに分割され、Gemini固有の `extra_content.g
 
 ## Z.AI
 
-Z.AIの無料Flashは最上位モデルの代替としてではなく、**無料で長時間回しやすい単純・大量タスク実行役**として使う。OpenRouter Free / Geminiが通常以上のタスクを担当し、Z.AI Flashには分類、変換、短い抽出、定型応答など、推論をほぼ必要としない処理を寄せる。
+Z.AIの無料Flashは最上位モデルの代替としてではなく、**無料で長時間回しやすい単純・大量タスク実行役**として使う。OpenRouter Free / Geminiが通常以上のタスクを担当し、Z.AI Flashには分類、変換、短い抽出、定型応答など比較的軽い処理を寄せる。
+
+ただし `glm-4.5-flash` は性能を優先して **reasoning ONを通常運用**とする。thinking OFFは、速度・token効率を最優先する極めて単純で決定的な処理に明示的に使える最適化手段として残す。
 
 一般API Base URL:
 
@@ -198,8 +200,9 @@ Z.AIの公式OpenAPIには現時点でModels list endpointが記載されてい�
 - `glm-4.5-flash` をZ.AIへ直接、thinkingデフォルトで送ると成功したが、接続 `0.086s` に対して最初の応答まで `27.353s`。`zai-ok` を返すだけで `completion_tokens=283` の大半を `reasoning_content` に消費した。
 - Free AI Pool経由で `reasoning.enabled=false` を指定すると、同じ定型応答が `completion_tokens=4` で高速に成功した ✅
 - `glm-4.5-flash` + `reasoning.enabled=false` のSSE streamingも成功。`1`〜`5` が逐次chunkで返り、最終chunkにusage、最後に `data: [DONE]` まで到達した ✅
+- `glm-4.5-flash` + `reasoning.enabled=true` でTool Calling 1ターン目も成功。`add_numbers(17,25)` に対し、`tool_calls[].function.arguments` が `{"a":17,"b":25}` のJSON stringとして返り、`reasoning_content` はFree AI Poolの `reasoning` にも正規化された ✅
 
-この実測から、**単純タスクではZ.AI Flashのthinking OFFを基本運用とする**。thinking ONは簡単な命令でも推論tokenと待ち時間が大きくなるため、明示的に必要な場合だけ使う。
+この実測から、thinking OFFは大幅な高速化・token削減が可能だが、`glm-4.5-flash` の通常運用では性能を優先してreasoning ONを使う。OFFは単純な定型処理で明示的に選ぶ。
 
 恒常無料モデルとして `GLM-4.7-Flash` / `GLM-4.5-Flash` を候補とするが、混雑や一時的なoverloadは起こり得るため、無制限相当の無料枠と瞬間的な可用性は別問題として扱う。
 
@@ -241,7 +244,7 @@ Provider固有機能は無理に完全抽象化しない。
 5. ✅ streaming / tool calling / structured outputのOpenRouter基準shapeを追加
 6. ✅ `/v1/models` を追加
 7. ✅ Gemini Adapter（実API models / 非streaming / SSE確認済み）
-8. ✅ Z.AI Adapter（実API non-streaming / thinking OFF / SSE確認済み）
+8. ✅ Z.AI Adapter（実API non-streaming / reasoning control / SSE / Tool Calling 1ターン目確認済み）
 9. Groq Adapter
 10. Kilo Adapter
 11. Vercel Adapter
