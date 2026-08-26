@@ -44,8 +44,6 @@ export class OpenRouterAdapter implements ProviderAdapter {
     request: CommonChatRequest,
     context?: ProviderRequestContext,
   ): Promise<CommonChatResponse> {
-    this.assertProvider(request);
-
     const response = await this.sendChat(request, false, context);
     const payload = await readJsonOrText(response);
 
@@ -73,8 +71,6 @@ export class OpenRouterAdapter implements ProviderAdapter {
     request: CommonChatRequest,
     context?: ProviderRequestContext,
   ): AsyncIterable<CommonChatChunk> {
-    this.assertProvider(request);
-
     const response = await this.sendChat(request, true, context);
 
     if (!response.ok) {
@@ -188,22 +184,12 @@ export class OpenRouterAdapter implements ProviderAdapter {
     };
   }
 
-  private assertProvider(request: CommonChatRequest): void {
-    if (request.provider !== this.id) {
-      throw new ProviderError({
-        provider: this.id,
-        message: `OpenRouter adapter cannot handle provider '${request.provider}'`,
-        statusCode: 500,
-      });
-    }
-  }
-
   private async sendChat(
     request: CommonChatRequest,
     stream: boolean,
     context?: ProviderRequestContext,
   ): Promise<Response> {
-    const { provider: _provider, stream: _stream, ...openRouterRequest } = request;
+    const { stream: _stream, ...openRouterRequest } = request;
 
     const init: RequestInit = {
       method: "POST",
