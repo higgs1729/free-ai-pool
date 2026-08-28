@@ -2,6 +2,20 @@
 
 Updated: 2026-08-28
 
+## Current status
+
+CI is green ✅
+
+Verified on Node 24:
+
+- dependency install ✅
+- TypeScript typecheck ✅
+- Vitest ✅
+- build ✅
+- existing `free-ai-pool` CI also remains green ✅
+
+**Next session should start from Windows host setup / ACL configuration.**
+
 ## Decision
 
 Build a local MCP server that exposes direct PowerShell/Bash execution to AI clients.
@@ -88,8 +102,8 @@ CI workflow:
 
 ## Next steps
 
-1. Make CI green (`typecheck`, tests, build).
-2. On the Windows machine, create/choose the dedicated standard account.
+1. ✅ CI green (`typecheck`, tests, build) — completed 2026-08-28.
+2. **NEXT:** On the Windows machine, create/choose the dedicated standard account.
 3. Run `scripts/setup-windows-agent.ps1` from elevated PowerShell.
 4. Install/build the package under the dedicated account.
 5. Register the built stdio server in the intended MCP client.
