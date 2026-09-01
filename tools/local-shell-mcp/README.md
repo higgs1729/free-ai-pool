@@ -10,7 +10,7 @@ This package currently lives under `free-ai-pool/tools/local-shell-mcp` only bec
 
 The real security boundary is the Windows user running this MCP server plus NTFS ACLs:
 
-- run the server as a dedicated **standard (non-Administrator) user**, e.g. `ai-agent`;
+- run the server as the existing dedicated **standard (non-Administrator) user** `hermes`;
 - `C:\dev` and `C:\agents` are explicitly writable development roots;
 - `C:\ai-agent-data` is writable scratch/cache/home data for agent-launched processes;
 - the agent otherwise receives the normal permissions of its standard Windows account;
@@ -84,20 +84,20 @@ Use `LOCAL_SHELL_MCP_PASSTHROUGH_ENV` for specific variables that commands genui
 
 ## Windows setup
 
-1. Create a dedicated standard Windows user named `ai-agent` (or choose another name).
+1. Use the existing dedicated standard Windows user `hermes` (or pass another verified standard-user name explicitly).
 2. From an elevated PowerShell, run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows-agent.ps1 -AgentUser ai-agent
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows-agent.ps1 -AgentUser hermes
 ```
 
-The setup script creates `C:\ai-agent-data` and grants the account Modify rights to `C:\dev`, `C:\agents`, and the data directory. It does not make the account an Administrator and does not weaken Windows system-directory ACLs.
+The setup script creates `C:\ai-agent-data` and grants `hermes` Modify rights to `C:\dev`, `C:\agents`, and the data directory. The existing `hermes` account is a standard, non-Administrator user; the script does not change that and does not weaken Windows system-directory ACLs.
 
 Review the ACLs of important personal/credential directories separately and remove the agent account's access where appropriate.
 
 ## Install and build
 
-From this directory:
+Run these commands from a shell running as the dedicated `hermes` user:
 
 ```powershell
 npm install

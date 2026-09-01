@@ -1,5 +1,5 @@
 param(
-  [string]$AgentUser = "ai-agent",
+  [string]$AgentUser = "hermes",
   [string]$DataRoot = "C:\ai-agent-data",
   [string[]]$WritableRoots = @("C:\dev", "C:\agents")
 )

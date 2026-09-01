@@ -13,6 +13,8 @@ Verified on Node 24:
 - Vitest ✅
 - build ✅
 - existing `free-ai-pool` CI also remains green ✅
+- repository docs and setup script now default to the existing `hermes` account ✅
+- host ACL setup completed: `hermes` has Modify access to `C:\dev`, `C:\agents`, and `C:\ai-agent-data` ✅
 
 **Next session should start from Windows host setup / ACL configuration.**
 
@@ -38,7 +40,7 @@ The package is intentionally standalone so it can be extracted later without dep
 
 Do not treat `cwd` or command filtering as a sandbox.
 
-The real boundary is a dedicated standard Windows account (default name in docs/scripts: `ai-agent`) plus NTFS ACLs.
+The real boundary is a dedicated standard Windows account (default name in docs/scripts: `hermes`) plus NTFS ACLs.
 
 Current policy:
 
@@ -48,6 +50,16 @@ Current policy:
 - the account otherwise has the normal permissions of a standard Windows user;
 - important personal data is protected with ACLs;
 - SSH keys, cloud credentials, browser profiles, password stores and private keys should ideally be unreadable by the agent account.
+
+The current Windows host already has the `hermes` account. It is enabled, belongs only to
+the built-in `Users` group, and is not a member of `Administrators`. The account already
+has explicit Modify access to `C:\dev` and `C:\agents`. Keep `C:\ai-agent-data` separate
+from the Hermes canonical home at `C:\hermes-data`.
+
+The host also leaves an inherited `Authenticated Users: Modify` entry on these roots,
+matching the current ACLs of `C:\dev`, `C:\agents`, and `C:\hermes-data`. This means the
+current setup matches the existing Hermes deployment, but is not a hermes-only write
+boundary; tightening inherited ACLs is a separate security-hardening decision.
 
 ## Implemented MCP API
 
@@ -103,9 +115,9 @@ CI workflow:
 ## Next steps
 
 1. ✅ CI green (`typecheck`, tests, build) — completed 2026-08-28.
-2. **NEXT:** On the Windows machine, create/choose the dedicated standard account.
-3. Run `scripts/setup-windows-agent.ps1` from elevated PowerShell.
-4. Install/build the package under the dedicated account.
+2. ✅ Reuse the existing `hermes` standard account and verify its host ACLs.
+3. ✅ Run `scripts/setup-windows-agent.ps1` from elevated PowerShell.
+4. **NEXT:** Install/build the package from a shell running as `hermes`.
 5. Register the built stdio server in the intended MCP client.
 6. Run real Windows E2E: `git status`, file write under `C:\dev`, npm test/build, timeout test, and denied-access test against a protected directory.
 7. Once Git is convenient again, extract this directory into repository `local-shell-mcp`.
