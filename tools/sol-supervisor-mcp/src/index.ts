@@ -152,7 +152,11 @@ const httpServer = http.createServer((req, res) => {
     }
 
     if (url.pathname === "/mcp") {
-      nodeMcpHandler(req, res);
+      if (!req.method) {
+        sendJson(res, 400, { error: "missing HTTP method" });
+        return;
+      }
+      nodeMcpHandler(req as http.IncomingMessage & { method: string }, res);
       return;
     }
 
