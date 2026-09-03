@@ -152,11 +152,10 @@ const httpServer = http.createServer((req, res) => {
     }
 
     if (url.pathname === "/mcp") {
-      if (!req.method) {
-        sendJson(res, 400, { error: "missing HTTP method" });
-        return;
-      }
-      nodeMcpHandler(req as http.IncomingMessage & { method: string }, res);
+      // @modelcontextprotocol/node uses a stricter structural request type than Node's
+      // IncomingMessage under exactOptionalPropertyTypes. Runtime values come directly
+      // from node:http, which is exactly what toNodeHandler is designed to adapt.
+      nodeMcpHandler(req as unknown as Parameters<typeof nodeMcpHandler>[0], res);
       return;
     }
 
