@@ -1,0 +1,31 @@
+name: sol-supervisor-mcp
+
+on:
+  push:
+    branches:
+      - feat/sol-supervisor-poc
+    paths:
+      - "tools/sol-supervisor-mcp/**"
+      - ".github/workflows/sol-supervisor-mcp.yml"
+  pull_request:
+    paths:
+      - "tools/sol-supervisor-mcp/**"
+      - ".github/workflows/sol-supervisor-mcp.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/sol-supervisor-mcp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build
