@@ -1,0 +1,20 @@
+# cloudflared configuration for local-shell-mcp.
+#
+# Copy to C:/Users/<you>/.cloudflared/config.yml and fill in the tunnel UUID
+# printed by `cloudflared tunnel create local-shell-mcp`.
+#
+# httpHostHeader is what lets LOCAL_SHELL_MCP_HTTP_ALLOWED_HOSTS stay at its
+# loopback default: cloudflared rewrites the Host header to the local listener's
+# own name, so the public hostname never has to be added to the allowlist.
+
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: C:/Users/<you>/.cloudflared/00000000-0000-0000-0000-000000000000.json
+
+ingress:
+  - hostname: shell.example.com
+    service: http://127.0.0.1:8792
+    originRequest:
+      httpHostHeader: 127.0.0.1:8792
+      connectTimeout: 10s
+      noTLSVerify: false
+  - service: http_status:404

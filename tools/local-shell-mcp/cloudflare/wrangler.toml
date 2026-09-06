@@ -1,0 +1,30 @@
+# Edge authorization Worker for local-shell-mcp.
+#
+# Deploy from this directory:
+#
+#   npx wrangler secret put MCP_PATH
+#   npx wrangler secret put MCP_TOKEN
+#   npx wrangler secret put ORIGIN_BASE
+#   npx wrangler deploy
+#
+# All three are secrets rather than [vars]: the path is a credential here, and
+# ORIGIN_BASE names the tunnel that reaches this machine.
+
+name = "local-shell-mcp-edge"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# Serve from <name>.<subdomain>.workers.dev, but do not mint a public preview URL
+# per deployed version: every extra hostname is another entrance in front of exec.
+workers_dev = true
+preview_urls = false
+
+# Uncomment if a scoped API token cannot resolve the account on its own. Setting
+# it here is preferable to widening the token with Account Settings: Read.
+# The value is on the Workers & Pages overview page in the dashboard.
+# account_id = "..."
+
+# Uncomment to serve from a custom domain instead of <name>.<subdomain>.workers.dev.
+# routes = [
+#   { pattern = "shell.example.com/*", zone_name = "example.com" }
+# ]

@@ -45,7 +45,7 @@ const SAFE_ENV_NAMES = [
   "WT_SESSION",
 ] as const;
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
+export function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") {
     return fallback;
   }
